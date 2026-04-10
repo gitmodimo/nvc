@@ -2074,7 +2074,7 @@ START_TEST(test_clone1)
 
    ident_t dotted0 = ident_new("WORK.TOP.G(1).U.sub");
    fail_unless(tree_ident(h0) == dotted0);
-   ck_assert_ident_eq(tree_ident2(h0), "WORK.SUB#0");
+   ck_assert_ident_eq(tree_ident2(h0), "WORK.TOP.G(1).U%sub");
 
    const int ndecls = tree_decls(u0);
    const int nstmts = tree_stmts(u0);
@@ -2091,7 +2091,7 @@ START_TEST(test_clone1)
       tree_t h = tree_decl(u, 0);
       fail_unless(tree_kind(h) == T_HIER);
       fail_unless(tree_ident(h) == id);
-      ck_assert_ident_eq(tree_ident2(h), "WORK.SUB#0");
+      ck_assert_ident_eq(tree_ident2(h), "WORK.TOP.G(1).U%sub");
 
       for (int j = 1; j < ndecls; j++)
          ck_assert_ptr_eq(tree_decl(u0, j), tree_decl(u, j));

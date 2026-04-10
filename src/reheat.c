@@ -18,10 +18,13 @@
 #include "util.h"
 #include "cov/cov-api.h"
 #include "hash.h"
+#include "ident.h"
 #include "lower.h"
+#include "mir/mir-unit.h"
 #include "phase.h"
 #include "rt/model.h"
 #include "tree.h"
+#include "vlog/vlog-node.h"
 #include "vlog/vlog-phase.h"
 #include "vhdl/vhdl-phase.h"
 
@@ -69,6 +72,17 @@ static void reheat_block(tree_t b, const reheat_ctx_t *parent)
       if (!hset_contains(ctx.instances, body)) {
          vlog_lower_instance(ctx.mir, body, parent->cloned, b);
          hset_insert(ctx.instances, body);
+      }
+      else if (ident_pos(ctx.dotted, '.') >= 0) {
+         // Cloned instance reusing a previously lowered body: alias the
+         // per-instance body name to the canonical one so hier-refs to
+         // this instance resolve correctly.  Mirrors the alias setup in
+         // elab_verilog_module's clone path.
+         ident_t parent_dotted = ident_runtil(ctx.dotted, '.');
+         ident_t label = ident_rfrom(ctx.dotted, '.');
+         ident_t alias = ident_prefix(parent_dotted, label, '%');
+         if (alias != vlog_ident(body))
+            mir_alias_unit(ctx.mir, alias, vlog_ident(body));
       }
 
       vlog_lower_block(ctx.mir, parent->cloned, b);

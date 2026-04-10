@@ -3012,6 +3012,14 @@ mir_value_t mir_build_link_package(mir_unit_t *mu, ident_t name)
    return result;
 }
 
+void mir_build_store_priv(mir_unit_t *mu, ident_t name, mir_value_t context)
+{
+   mir_value_t link = mir_add_linkage(mu, name);
+
+   mir_build_2(mu, MIR_OP_STORE_PRIV, MIR_NULL_TYPE,
+               MIR_NULL_STAMP, link, context);
+}
+
 mir_value_t mir_build_link_var(mir_unit_t *mu, mir_value_t context,
                                ident_t name, mir_type_t type)
 {

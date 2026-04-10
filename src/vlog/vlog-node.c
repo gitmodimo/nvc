@@ -98,7 +98,7 @@ static const imask_t has_map[V_LAST_NODE_KIND] = {
    (I_SUBKIND),
 
    // V_MOD_INST
-   (I_IDENT | I_PARAMS),
+   (I_IDENT | I_IDENT2 | I_PARAMS),
 
    // V_BIT_SELECT
    (I_VALUE | I_PARAMS),

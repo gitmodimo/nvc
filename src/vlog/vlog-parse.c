@@ -5784,7 +5784,7 @@ static void p_list_of_port_connections(vlog_node_t inst)
    vlog_symtab_set_implicit(symtab, V_NET_NONE);
 }
 
-static vlog_node_t p_hierarchical_instance(void)
+static vlog_node_t p_hierarchical_instance(ident_t modname)
 {
    // name_of_instance ( [ list_of_port_connections ] )
 
@@ -5792,6 +5792,7 @@ static vlog_node_t p_hierarchical_instance(void)
 
    vlog_node_t v = vlog_new(V_MOD_INST);
    vlog_set_ident(v, p_identifier());
+   vlog_set_ident2(v, modname);
 
    consume(tLPAREN);
 
@@ -5918,11 +5919,12 @@ static void p_module_or_udp_instantiation(vlog_node_t mod)
    if (peek() == tHASH)
       p_parameter_value_assignment(v);
 
+   ident_t modname = vlog_ident(v);
    do {
       if (peek() == tLPAREN)
          vlog_add_stmt(v, p_udp_instance());
       else
-         vlog_add_stmt(v, p_hierarchical_instance());
+         vlog_add_stmt(v, p_hierarchical_instance(modname));
    } while (optional(tCOMMA));
 
    consume(tSEMI);

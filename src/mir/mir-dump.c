@@ -72,6 +72,7 @@ const char *mir_op_string(mir_op_t op)
       [MIR_OP_REM] = "rem",
       [MIR_OP_WAIT] = "wait",
       [MIR_OP_LINK_PACKAGE] = "link package",
+      [MIR_OP_STORE_PRIV] = "store priv",
       [MIR_OP_PACKAGE_INIT] = "package init",
       [MIR_OP_PROTECTED_INIT] = "protected init",
       [MIR_OP_ASSERT] = "assert",
@@ -1191,6 +1192,15 @@ void mir_annotate(mir_unit_t *mu, const mir_annotate_t *cb, void *ctx)
                col += mir_dump_value(mu, n->args[0], cb, ctx);
                mir_dump_type(mu, col, n->type);
                mir_dump_stamp(mu, n->type, n->stamp);
+            }
+            break;
+
+         case MIR_OP_STORE_PRIV:
+            {
+               printf("%s ", mir_op_string(n->op));
+               mir_dump_arg(mu, result, 0, cb, ctx);
+               printf(" ");
+               mir_dump_arg(mu, result, 1, cb, ctx);
             }
             break;
 

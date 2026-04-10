@@ -1452,7 +1452,7 @@ START_TEST(test_lower1)
    mir_context_t *mc = get_mir();
 
    {
-      mir_unit_t *mu = mir_get_unit(mc, ident_new("WORK.LOWER1#0"));
+      mir_unit_t *mu = mir_get_unit(mc, ident_new("WORK%lower1"));
       ck_assert_ptr_nonnull(mu);
 
       static const mir_match_t bb0[] = {
@@ -1475,10 +1475,10 @@ START_TEST(test_lower1)
          { MIR_OP_INIT_SIGNAL },
          { MIR_OP_STORE, VAR("r") },
          { MIR_OP_CONTEXT_UPREF, ENUM(0) },
-         { MIR_OP_CLOSURE, LINK("WORK.LOWER1#0.assign#3#9") },
+         { MIR_OP_CLOSURE, LINK("WORK%lower1.assign#3#9") },
          { MIR_OP_DEBUG_LOCUS },
          { MIR_OP_PROCESS_INIT },
-         { MIR_OP_CLOSURE, LINK("WORK.LOWER1#0.always#6#2") },
+         { MIR_OP_CLOSURE, LINK("WORK%lower1.always#6#2") },
          { MIR_OP_DEBUG_LOCUS },
          { MIR_OP_PROCESS_INIT },
          { MIR_OP_RETURN },
@@ -1487,7 +1487,7 @@ START_TEST(test_lower1)
    }
 
    {
-      mir_unit_t *mu = mir_get_unit(mc, ident_new("WORK.LOWER1#0.always#6#2"));
+      mir_unit_t *mu = mir_get_unit(mc, ident_new("WORK%lower1.always#6#2"));
       ck_assert_ptr_nonnull(mu);
 
       static const mir_match_t bb0[] = {

@@ -46,6 +46,12 @@ mir_context_t *mir_context_new(void);
 void mir_context_free(mir_context_t *mc);
 
 void mir_put_unit(mir_context_t *mc, mir_unit_t *mu);
+// Register an additional name pointing at the same unit as an existing
+// entry.  Used by the elaborator when a single lowered Verilog module
+// body is shared across multiple instantiations: the body keeps its
+// canonical name, while each instance gets an alias so that hierarchical
+// references resolve to the shared body.
+void mir_alias_unit(mir_context_t *mc, ident_t alias, ident_t existing);
 mir_unit_t *mir_get_unit(mir_context_t *mc, ident_t name);
 mir_shape_t *mir_get_shape(mir_context_t *mc, ident_t name);
 void mir_defer(mir_context_t *mc, ident_t name, ident_t parent,

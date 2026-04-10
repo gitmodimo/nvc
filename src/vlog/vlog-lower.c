@@ -74,6 +74,46 @@ typedef enum {
 
 static void vlog_lower_stmts(vlog_gen_t *g, vlog_node_t v);
 static mir_value_t vlog_lower_rvalue(vlog_gen_t *g, vlog_node_t v);
+
+static ident_t vlog_body_to_dotted(ident_t body)
+{
+   // Convert body name (WORK%vlog47) to dotted form (WORK.vlog47)
+   ident_t base = ident_runtil(body, '%');
+   ident_t last = ident_rfrom(body, '%');
+   return ident_prefix(base, last, '.');
+}
+
+static ident_t vlog_hier_unit_name(mir_unit_t *mu, vlog_node_t v)
+{
+   // Walk the hierarchical path to compute the target instance body name.
+   // For u.leaf.count: ident="u", ident2="leaf.count"
+   //   parent WORK%vlog47 → WORK.vlog47%u → WORK.vlog47.u%leaf
+   ident_t dotted = vlog_body_to_dotted(mir_get_parent(mu));
+
+   // First level: ident is the first instance name
+   ident_t unit = ident_prefix(dotted, vlog_ident(v), '%');
+
+   // Walk intermediate levels in ident2 (all but the last component)
+   ident_t remaining = vlog_ident2(v);
+   while (ident_pos(remaining, '.') >= 0) {
+      ident_t inst_name = ident_until(remaining, '.');
+      remaining = ident_from(remaining, '.');
+
+      dotted = vlog_body_to_dotted(unit);
+      unit = ident_prefix(dotted, inst_name, '%');
+   }
+
+   return unit;
+}
+
+static ident_t vlog_hier_signal_name(vlog_node_t v)
+{
+   // The signal name is the last component of ident2
+   ident_t path = vlog_ident2(v);
+   if (ident_pos(path, '.') >= 0)
+      return ident_rfrom(path, '.');
+   return path;
+}
 static mir_value_t vlog_lower_with_context(vlog_gen_t *g, vlog_node_t v,
                                            mir_type_t context);
 static void vlog_lower_deferred(mir_unit_t *mu, object_t *obj);
@@ -320,21 +360,17 @@ static vlog_select_t vlog_lower_select(vlog_gen_t *g, vlog_node_t v)
 
    case V_HIER_REF:
       {
-         mir_type_t t_net_value = mir_int_type(g->mu, 0, 255);
-         mir_type_t t_net_signal = mir_signal_type(g->mu, t_net_value);
+         vlog_node_t decl = vlog_ref(v);
+         const type_info_t *ti = vlog_type_info(g, vlog_type(decl));
 
-         // XXX: reconsider this
-         ident_t unit_name =
-            ident_prefix(mir_get_parent(g->mu), vlog_ident2(v), '.');
+         ident_t unit_name = vlog_hier_unit_name(g->mu, v);
+         ident_t sig_name = vlog_hier_signal_name(v);
          mir_value_t context = mir_build_link_package(g->mu, unit_name);
-         mir_value_t ptr = mir_build_link_var(g->mu, context, vlog_ident(v),
-                                              t_net_signal);
+         mir_value_t ptr = mir_build_link_var(g->mu, context,
+                                              sig_name, ti->signal);
 
          mir_type_t t_bool = mir_bool_type(g->mu);
          mir_type_t t_offset = mir_offset_type(g->mu);
-
-         vlog_node_t decl = vlog_ref(v);
-         const type_info_t *ti = vlog_type_info(g, vlog_type(decl));
 
          vlog_select_t result = {
             .obj      = mir_build_load(g->mu, ptr),
@@ -833,6 +869,7 @@ static mir_value_t vlog_lower_systf_param(vlog_gen_t *g, vlog_node_t v)
    case V_PART_SELECT:
    case V_COND_EXPR:
    case V_MEMBER_REF:
+   case V_HIER_REF:
       // TODO: these should not be evaluated until vpi_get_value is called
       return vlog_lower_rvalue(g, v);
    default:
@@ -1007,19 +1044,15 @@ static mir_value_t vlog_lower_with_context(vlog_gen_t *g, vlog_node_t v,
       return vlog_lower_rvalue_select(g, v);
    case V_HIER_REF:
       {
-         mir_type_t t_net_value = mir_int_type(g->mu, 0, 255);
-         mir_type_t t_net_signal = mir_signal_type(g->mu, t_net_value);
-
-         // XXX: reconsider this
-         ident_t unit_name =
-            ident_prefix(mir_get_parent(g->mu), vlog_ident2(v), '.');
-         mir_value_t context = mir_build_link_package(g->mu, unit_name);
-         mir_value_t ptr = mir_build_link_var(g->mu, context, vlog_ident(v),
-                                              t_net_signal);
-         mir_value_t nets = mir_build_load(g->mu, ptr);
-
          vlog_node_t decl = vlog_ref(v);
          const type_info_t *ti = vlog_type_info(g, vlog_type(decl));
+
+         ident_t unit_name = vlog_hier_unit_name(g->mu, v);
+         ident_t sig_name = vlog_hier_signal_name(v);
+         mir_value_t context = mir_build_link_package(g->mu, unit_name);
+         mir_value_t ptr = mir_build_link_var(g->mu, context,
+                                              sig_name, ti->signal);
+         mir_value_t nets = mir_build_load(g->mu, ptr);
 
          mir_value_t data = mir_build_resolved(g->mu, nets);
 
@@ -3345,8 +3378,22 @@ void vlog_lower_block(mir_context_t *mc, ident_t parent, tree_t b)
       args[i + 1] = nets;
    }
 
-   mir_value_t inst = mir_build_instance_init(mu, vlog_ident(body),
+   // For cloned bodies (vlog_ident(body) is the canonical first-instance
+   // name shared across clones), compute the per-instance body name from
+   // the block's qualified dotted name so that each instance gets its
+   // own privdata slot and hierarchical references resolve uniquely.
+   // qual is "<parent>.<label>"; body name is "<parent>%<label>".
+   ident_t inst_body_name = vlog_ident(body);
+   if (ident_pos(qual, '.') >= 0) {
+      ident_t qual_parent = ident_runtil(qual, '.');
+      ident_t qual_label  = ident_rfrom(qual, '.');
+      inst_body_name = ident_prefix(qual_parent, qual_label, '%');
+   }
+
+   mir_value_t inst = mir_build_instance_init(mu, inst_body_name,
                                               args, vlog_nports + 1);
+
+   mir_build_store_priv(mu, inst_body_name, inst);
 
    mir_set_result(mu, mir_get_type(mu, inst));
 

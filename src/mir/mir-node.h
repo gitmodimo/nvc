@@ -161,6 +161,7 @@ typedef enum {
    MIR_OP_SELECT,
    MIR_OP_WAIT,
    MIR_OP_LINK_PACKAGE,
+   MIR_OP_STORE_PRIV,
    MIR_OP_PACKAGE_INIT,
    MIR_OP_PROTECTED_INIT,
    MIR_OP_ASSERT,
@@ -717,6 +718,7 @@ void mir_build_add_trigger(mir_unit_t *mu, mir_value_t trigger);
 
 // Linking
 mir_value_t mir_build_link_package(mir_unit_t *mu, ident_t name);
+void mir_build_store_priv(mir_unit_t *mu, ident_t name, mir_value_t context);
 mir_value_t mir_build_link_var(mir_unit_t *mu, mir_value_t context,
                                ident_t name, mir_type_t type);
 void mir_build_bind_foreign(mir_unit_t *mu, mir_value_t spec,

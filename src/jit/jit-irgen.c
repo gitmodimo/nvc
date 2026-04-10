@@ -4613,6 +4613,13 @@ static void irgen_block(jit_irgen_t *g, mir_block_t block)
       case MIR_OP_LINK_PACKAGE:
          irgen_op_link_package(g, n);
          break;
+      case MIR_OP_STORE_PRIV:
+         {
+            jit_handle_t handle = irgen_get_handle(g, n, 0);
+            jit_value_t ptr = irgen_get_arg(g, n, 1);
+            macro_putpriv(g, handle, ptr);
+         }
+         break;
       case MIR_OP_LINK_VAR:
          irgen_op_link_var(g, n);
          break;

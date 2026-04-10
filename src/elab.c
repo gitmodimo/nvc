@@ -1672,7 +1672,7 @@ static void elab_verilog_module(tree_t comp, ident_t label, vlog_node_t mod,
 
    elab_instance_t *ei = ghash_get(mc->instances, list);
    if (!elab_can_clone_instance(ei, &new_ctx)) {
-      ident_t id = ident_sprintf("%s#%d", istr(vlog_ident(mod)), mc->unique);
+      ident_t id = ident_prefix(ctx->dotted, label, '%');
 
       ei = pool_calloc(ctx->pool, sizeof(elab_instance_t));
       ei->body = vlog_new_instance(mod, list, id);
@@ -1687,10 +1687,17 @@ static void elab_verilog_module(tree_t comp, ident_t label, vlog_node_t mod,
       tree_set_ident(ei->block, ndotted);
 
       vlog_trans(ei->body, ei->block);
-      vlog_lower_instance(ctx->mir, ei->body, NULL, ei->block);
+      vlog_lower_instance(ctx->mir, ei->body, ctx->cloned, ei->block);
 
       ghash_put(mc->instances, list, ei);
-      mc->unique++;
+   }
+   else {
+      // Cloned: register a per-instance alias for the shared body so
+      // hierarchical references like WORK.parent.label resolve to the
+      // same MIR unit as the original.
+      ident_t alias = ident_prefix(ctx->dotted, label, '%');
+      if (alias != vlog_ident(ei->body))
+         mir_alias_unit(ctx->mir, alias, vlog_ident(ei->body));
    }
 
    new_ctx.cloned = vlog_ident(ei->body);

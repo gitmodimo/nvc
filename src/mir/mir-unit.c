@@ -93,6 +93,9 @@ static void mir_free_unit_cb(const void *key, void *value)
          hash_free(s->objmap);
       }
       break;
+   case UNIT_ALIAS:
+      // The aliased unit is owned by its canonical entry; do not free.
+      break;
    }
 }
 
@@ -290,6 +293,28 @@ void mir_put_unit(mir_context_t *mc, mir_unit_t *mu)
    chash_put(mc->map, mu->name, tag_pointer(mu, UNIT_GENERATED));
 }
 
+void mir_alias_unit(mir_context_t *mc, ident_t alias, ident_t existing)
+{
+   void *ptr = chash_get(mc->map, existing);
+   if (ptr == NULL)
+      fatal_trace("cannot alias %s -> %s: target not registered",
+                  istr(alias), istr(existing));
+   if (pointer_tag(ptr) != UNIT_GENERATED)
+      fatal_trace("cannot alias %s -> %s: target is not a generated unit",
+                  istr(alias), istr(existing));
+
+   mir_unit_t *mu = untag_pointer(ptr, mir_unit_t);
+
+#ifdef DEBUG
+   void *prev = chash_get(mc->map, alias);
+   if (prev != NULL && untag_pointer(prev, mir_unit_t) != mu)
+      fatal_trace("alias %s already registered to a different unit",
+                  istr(alias));
+#endif
+
+   chash_put(mc->map, alias, tag_pointer(mu, UNIT_ALIAS));
+}
+
 static mir_unit_t *mir_lazy_build(mir_context_t *mc, deferred_unit_t *du)
 {
    mir_shape_t *parent = NULL;
@@ -322,6 +347,7 @@ mir_unit_t *mir_get_unit(mir_context_t *mc, ident_t name)
          return mir_lazy_build(mc, du);
       }
    case UNIT_GENERATED:
+   case UNIT_ALIAS:
       return untag_pointer(ptr, mir_unit_t);
    case UNIT_FREED:
       fatal_trace("unit %s has already been freed", istr(name));
@@ -344,6 +370,7 @@ mir_shape_t *mir_get_shape(mir_context_t *mc, ident_t name)
          return (mu->shape = mir_build_shape(mu));
       }
    case UNIT_GENERATED:
+   case UNIT_ALIAS:
       {
          mir_unit_t *mu = untag_pointer(ptr, mir_unit_t);
          if (mu->shape != NULL)
@@ -384,6 +411,13 @@ void mir_defer(mir_context_t *mc, ident_t name, ident_t parent,
          {
             mir_shape_t *s = untag_pointer(ptr, mir_shape_t);
             assert(s->kind == kind);
+         }
+         return;
+      case UNIT_ALIAS:
+         {
+            mir_unit_t *mu = untag_pointer(ptr, mir_unit_t);
+            assert(mu->kind == kind);
+            assert(mu->object == object);
          }
          return;
       default:

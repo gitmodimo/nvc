@@ -18,6 +18,7 @@
 #include "util.h"
 #include "diag.h"
 #include "ident.h"
+#include "lib.h"
 #include "vlog/vlog-node.h"
 #include "vlog/vlog-number.h"
 #include "vlog/vlog-phase.h"
@@ -697,14 +698,94 @@ static void vlog_check_wait(vlog_node_t v)
    // TODO
 }
 
+static vlog_node_t vlog_load_module(ident_t modname)
+{
+   lib_t lib = lib_work();
+   ident_t libname = lib_name(lib);
+
+   LOCAL_TEXT_BUF tb = tb_new();
+   tb_istr(tb, libname);
+   tb_append(tb, '.');
+   tb_istr(tb, modname);
+   tb_upcase(tb);
+
+   ident_t qual = ident_new(tb_get(tb));
+   object_t *obj = lib_get_generic(lib, qual, NULL);
+   if (obj == NULL)
+      return NULL;
+
+   return vlog_from_object(obj);
+}
+
+static vlog_node_t vlog_find_decl(vlog_node_t mod, ident_t name)
+{
+   const int ndecls = vlog_decls(mod);
+   for (int i = 0; i < ndecls; i++) {
+      vlog_node_t d = vlog_decl(mod, i);
+      if (vlog_ident(d) == name)
+         return d;
+   }
+
+   // Also search for module instances (V_MOD_INST inside V_INST_LIST)
+   const int nstmts = vlog_stmts(mod);
+   for (int i = 0; i < nstmts; i++) {
+      vlog_node_t s = vlog_stmt(mod, i);
+      if (vlog_kind(s) != V_INST_LIST)
+         continue;
+      const int ninsts = vlog_stmts(s);
+      for (int j = 0; j < ninsts; j++) {
+         vlog_node_t inst = vlog_stmt(s, j);
+         if (vlog_kind(inst) == V_MOD_INST && vlog_ident(inst) == name)
+            return inst;
+      }
+   }
+
+   return NULL;
+}
+
 static type_mask_t vlog_check_hier_ref(vlog_node_t v)
 {
    vlog_node_t inst = vlog_ref(v);
-   if (vlog_kind(inst) != V_MOD_INST)
+   if (vlog_kind(inst) != V_MOD_INST) {
       error_at(vlog_loc(v), "prefix of hierarchical identifier is not an "
                "instance");
+      return TM_ERROR;
+   }
 
-   return TM_INTEGRAL;
+   vlog_node_t mod = vlog_load_module(vlog_ident2(inst));
+   if (mod == NULL)
+      return TM_INTEGRAL;   // Module not yet analysed
+
+   // Walk through intermediate instance levels in ident2
+   // e.g., for u.leaf.count: ident2="leaf.count", walk "leaf" then "count"
+   ident_t remaining = vlog_ident2(v);
+
+   while (ident_pos(remaining, '.') >= 0) {
+      ident_t inst_name = ident_until(remaining, '.');
+      remaining = ident_from(remaining, '.');
+
+      vlog_node_t d = vlog_find_decl(mod, inst_name);
+      if (d == NULL || vlog_kind(d) != V_MOD_INST) {
+         error_at(vlog_loc(v), "no instance %s in module %s",
+                  istr(inst_name), istr(vlog_ident2(mod)));
+         return TM_ERROR;
+      }
+
+      mod = vlog_load_module(vlog_ident2(d));
+      if (mod == NULL)
+         return TM_INTEGRAL;
+   }
+
+   // remaining is now the signal name
+   vlog_node_t d = vlog_find_decl(mod, remaining);
+   if (d != NULL) {
+      vlog_set_ref(v, d);
+      return get_type_mask(d);
+   }
+
+   error_at(vlog_loc(v), "no declaration for %s in module %s",
+            istr(remaining), istr(vlog_ident2(mod)));
+   return TM_ERROR;
 }
 
 static type_mask_t vlog_check_member_ref(vlog_node_t v)
