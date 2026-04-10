@@ -123,6 +123,10 @@ static void vlog_check_variable_lvalue(vlog_node_t v, vlog_node_t where)
       if (vlog_has_ref(v))
          vlog_check_variable_lvalue(vlog_ref(v), v);
       return;
+   case V_HIER_REF:
+      if (vlog_has_ref(v))
+         vlog_check_variable_lvalue(vlog_ref(v), v);
+      return;
    case V_BIT_SELECT:
    case V_PART_SELECT:
    case V_MEMBER_REF:
