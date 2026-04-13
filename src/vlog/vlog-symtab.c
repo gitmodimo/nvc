@@ -158,6 +158,10 @@ void vlog_symtab_pop(vlog_symtab_t *st)
    for (int i = 0; i < st->top->deferred.count; i++) {
       vlog_node_t v = st->top->deferred.items[i];
       if (st->top->parent == NULL || is_top_level(st->top->container)) {
+         // Hierarchical references can be resolved at elaboration time
+         // via upward name lookup (IEEE 1364-2005 §12.4.2)
+         if (vlog_kind(v) == V_HIER_REF)
+            continue;
          ident_t name = vlog_ident(v);
          error_at(vlog_loc(v), "no visible declaration for '%pi'", name);
          vlog_symtab_poison(st, name);

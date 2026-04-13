@@ -699,6 +699,9 @@ static void vlog_check_wait(vlog_node_t v)
 
 static type_mask_t vlog_check_hier_ref(vlog_node_t v)
 {
+   if (!vlog_has_ref(v))
+      return TM_INTEGRAL;   // Deferred to elaboration for upward lookup
+
    vlog_node_t inst = vlog_ref(v);
    if (vlog_kind(inst) != V_MOD_INST)
       error_at(vlog_loc(v), "prefix of hierarchical identifier is not an "

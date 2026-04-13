@@ -323,11 +323,9 @@ static vlog_select_t vlog_lower_select(vlog_gen_t *g, vlog_node_t v)
          mir_type_t t_net_value = mir_int_type(g->mu, 0, 255);
          mir_type_t t_net_signal = mir_signal_type(g->mu, t_net_value);
 
-         // XXX: reconsider this
-         ident_t unit_name =
-            ident_prefix(mir_get_parent(g->mu), vlog_ident2(v), '.');
+         ident_t unit_name = vlog_ident(vlog_value(v));
          mir_value_t context = mir_build_link_package(g->mu, unit_name);
-         mir_value_t ptr = mir_build_link_var(g->mu, context, vlog_ident(v),
+         mir_value_t ptr = mir_build_link_var(g->mu, context, vlog_ident2(v),
                                               t_net_signal);
 
          mir_type_t t_bool = mir_bool_type(g->mu);
@@ -1010,11 +1008,9 @@ static mir_value_t vlog_lower_with_context(vlog_gen_t *g, vlog_node_t v,
          mir_type_t t_net_value = mir_int_type(g->mu, 0, 255);
          mir_type_t t_net_signal = mir_signal_type(g->mu, t_net_value);
 
-         // XXX: reconsider this
-         ident_t unit_name =
-            ident_prefix(mir_get_parent(g->mu), vlog_ident2(v), '.');
+         ident_t unit_name = vlog_ident(vlog_value(v));
          mir_value_t context = mir_build_link_package(g->mu, unit_name);
-         mir_value_t ptr = mir_build_link_var(g->mu, context, vlog_ident(v),
+         mir_value_t ptr = mir_build_link_var(g->mu, context, vlog_ident2(v),
                                               t_net_signal);
          mir_value_t nets = mir_build_load(g->mu, ptr);
 

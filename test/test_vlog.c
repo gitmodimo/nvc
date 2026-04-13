@@ -1267,9 +1267,12 @@ START_TEST(test_href1)
 {
    input_from_file(TESTDIR "/vlog/href1.v");
 
+   // Hierarchical references whose prefix is not in scope are no longer
+   // diagnosed at parse time: they may be upward references to an
+   // instance in an ancestor scope (IEEE 1364-2005 §12.4.2), which can
+   // only be resolved during elaboration.  See vlog51 in the regression
+   // suite for the end-to-end elaboration-time error check.
    const error_t expect[] = {
-      {  6, "no visible declaration for 'xx'" },
-      { 13, "no visible declaration for 'yy'" },
       { -1, NULL }
    };
    expect_errors(expect);

@@ -60,6 +60,7 @@ typedef struct _elab_ctx {
    tree_t            inst;
    ident_t           dotted;
    ident_t           cloned;
+   vlog_node_t       vlog_body;
    lib_t             library;
    jit_t            *jit;
    unit_registry_t  *registry;
@@ -1554,6 +1555,114 @@ static bool elab_can_clone_instance(elab_instance_t *ei, const elab_ctx_t *ctx)
    return cover_compatible_spec(ctx->cover, ei->cscope, ctx->cscope);
 }
 
+static elab_instance_t *elab_find_vlog_instance(ident_t inst_name,
+                                                const elab_ctx_t *ctx)
+{
+   for (const elab_ctx_t *c = ctx; c != NULL; c = c->parent) {
+      vlog_node_t body = c->vlog_body;
+      if (body == NULL)
+         continue;
+
+      const int nstmts = vlog_stmts(body);
+      for (int i = 0; i < nstmts; i++) {
+         vlog_node_t s = vlog_stmt(body, i);
+         if (vlog_kind(s) != V_INST_LIST)
+            continue;
+
+         const int ninsts = vlog_stmts(s);
+         for (int j = 0; j < ninsts; j++) {
+            vlog_node_t inst = vlog_stmt(s, j);
+            if (vlog_ident(inst) != inst_name)
+               continue;
+
+            ident_t modname = vlog_ident(s);
+            ident_t libname = lib_name(c->library);
+
+            LOCAL_TEXT_BUF tb = tb_new();
+            tb_istr(tb, libname);
+            tb_append(tb, '.');
+            tb_istr(tb, modname);
+            tb_upcase(tb);
+
+            ident_t qual = ident_new(tb_get(tb));
+            object_t *obj = lib_get_generic(c->library, qual, NULL);
+            if (obj == NULL)
+               return NULL;
+
+            mod_cache_t *mc = hash_get(ctx->modcache, obj);
+            if (mc == NULL)
+               return NULL;
+
+            return ghash_get(mc->instances, s);
+         }
+      }
+   }
+
+   return NULL;
+}
+
+typedef struct {
+   const elab_ctx_t *ctx;
+   bool              report_errors;
+} hier_resolve_ctx_t;
+
+static void elab_resolve_hier_ref_cb(vlog_node_t v, void *context)
+{
+   hier_resolve_ctx_t *rc = context;
+
+   // Once the instance body is stored in the value slot the reference is
+   // fully resolved.  The ref slot alone is not sufficient: the parse-time
+   // symbol table resolution sets ref to the enclosing V_MOD_INST when
+   // the prefix is declared later in the same module.
+   if (vlog_has_value(v))
+      return;
+
+   ident_t inst_name = vlog_ident(v);
+   ident_t suffix = vlog_ident2(v);
+
+   elab_instance_t *ei = elab_find_vlog_instance(inst_name, rc->ctx);
+   if (ei == NULL) {
+      if (rc->report_errors)
+         error_at(vlog_loc(v), "no visible declaration for '%pi'", inst_name);
+      return;
+   }
+
+   vlog_node_t body = ei->body;
+   const int ndecls = vlog_decls(body);
+   for (int i = 0; i < ndecls; i++) {
+      vlog_node_t d = vlog_decl(body, i);
+      if (vlog_has_ident(d) && vlog_ident(d) == suffix) {
+         vlog_set_ref(v, d);
+         vlog_set_value(v, body);
+         return;
+      }
+   }
+
+   if (rc->report_errors)
+      error_at(vlog_loc(v), "no declaration for '%pi' in instance '%pi'",
+               suffix, inst_name);
+}
+
+// Best-effort first pass: resolves references whose target instance is
+// already in the module cache (upward and sibling references).  Downward
+// references to instances that are children of the current body are not
+// resolved here because those children have not yet been elaborated.
+static void elab_try_resolve_vlog_hier_refs(vlog_node_t body,
+                                            const elab_ctx_t *ctx)
+{
+   hier_resolve_ctx_t rc = { .ctx = ctx, .report_errors = false };
+   vlog_visit_only(body, elab_resolve_hier_ref_cb, &rc, V_HIER_REF);
+}
+
+// Final pass after all children have been elaborated: anything still
+// unresolved is a real error.
+static void elab_finish_resolve_vlog_hier_refs(vlog_node_t body,
+                                               const elab_ctx_t *ctx)
+{
+   hier_resolve_ctx_t rc = { .ctx = ctx, .report_errors = true };
+   vlog_visit_only(body, elab_resolve_hier_ref_cb, &rc, V_HIER_REF);
+}
+
 static void elab_verilog_ports(vlog_node_t inst, elab_instance_t *ei,
                                const elab_ctx_t *ctx)
 {
@@ -1686,13 +1795,19 @@ static void elab_verilog_module(tree_t comp, ident_t label, vlog_node_t mod,
       tree_set_loc(ei->block, vlog_loc(list));
       tree_set_ident(ei->block, ndotted);
 
-      vlog_trans(ei->body, ei->block);
-      vlog_lower_instance(ctx->mir, ei->body, NULL, ei->block);
-
+      // Register the instance in the cache before resolving hierarchical
+      // references so upward lookups from child modules can find it.
       ghash_put(mc->instances, list, ei);
       mc->unique++;
+
+      new_ctx.vlog_body = ei->body;
+      elab_try_resolve_vlog_hier_refs(ei->body, &new_ctx);
+
+      vlog_trans(ei->body, ei->block);
+      vlog_lower_instance(ctx->mir, ei->body, NULL, ei->block);
    }
 
+   new_ctx.vlog_body = ei->body;
    new_ctx.cloned = vlog_ident(ei->body);
 
    elab_push_scope(ei->wrap, &new_ctx);
@@ -1715,6 +1830,9 @@ static void elab_verilog_module(tree_t comp, ident_t label, vlog_node_t mod,
 
    if (elab_new_errors(&new_ctx) == 0)
       elab_verilog_sub_blocks(ei->body, &new_ctx);
+
+   if (elab_new_errors(&new_ctx) == 0)
+      elab_finish_resolve_vlog_hier_refs(ei->body, &new_ctx);
 
    elab_pop_scope(&new_ctx);
 }
@@ -1797,6 +1915,9 @@ static void elab_verilog_block(vlog_node_t v, const elab_ctx_t *ctx)
    tree_set_loc(block, vlog_loc(v));
    tree_set_ident(block, ndotted);
 
+   new_ctx.vlog_body = body;
+   elab_try_resolve_vlog_hier_refs(body, &new_ctx);
+
    vlog_trans(body, block);
    vlog_lower_instance(ctx->mir, body, ctx->cloned, block);
 
@@ -1811,6 +1932,9 @@ static void elab_verilog_block(vlog_node_t v, const elab_ctx_t *ctx)
 
    if (elab_new_errors(&new_ctx) == 0)
       elab_verilog_sub_blocks(v, &new_ctx);
+
+   if (elab_new_errors(&new_ctx) == 0)
+      elab_finish_resolve_vlog_hier_refs(body, &new_ctx);
 
    elab_pop_scope(&new_ctx);
 }
