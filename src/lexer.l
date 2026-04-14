@@ -802,9 +802,9 @@ PROTECT           ?i:protect
 <VLOG>"tran"             { return tTRAN; }
 <VLOG>"tranif0"          { return tTRANIF0; }
 <VLOG>"tranif1"          { return tTRANIF1; }
-<VLOG>"rtran"            { return tTRAN; }
-<VLOG>"rtranif0"         { return tTRANIF0; }
-<VLOG>"rtranif1"         { return tTRANIF1; }
+<VLOG>"rtran"            { return tRTRAN; }
+<VLOG>"rtranif0"         { return tRTRANIF0; }
+<VLOG>"rtranif1"         { return tRTRANIF1; }
 <VLOG>"nmos"             { return tNMOS; }
 <VLOG>"pmos"             { return tPMOS; }
 <VLOG>"cmos"             { return tCMOS; }

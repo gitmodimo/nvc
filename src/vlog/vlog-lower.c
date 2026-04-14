@@ -2376,17 +2376,110 @@ static void vlog_lower_gate_inst(vlog_gen_t *g, vlog_node_t v)
       break;
 
    case V_GATE_NMOS:
-   case V_GATE_PMOS:
    case V_GATE_RNMOS:
+      {
+         // nmos passes data when control=1, Z when control=0
+         mir_value_t input = vlog_lower_rvalue(g, vlog_param(v, first_term));
+         input = mir_build_unary(g->mu, MIR_VEC_BIT_NOT, t_logic, input);
+         input = mir_build_unary(g->mu, MIR_VEC_BIT_NOT, t_logic, input);
+
+         mir_value_t ctrl = vlog_lower_rvalue(g, vlog_param(v, first_term + 1));
+         mir_value_t test = mir_build_test(g->mu, ctrl);
+         mir_value_t z = mir_const_vec(g->mu, t_logic, 0, 1);
+         value = mir_build_select(g->mu, t_logic, test, input, z);
+
+         if (kind == V_GATE_RNMOS)
+            strength = ST_PULLUP;
+      }
+      break;
+
+   case V_GATE_PMOS:
    case V_GATE_RPMOS:
+      {
+         // pmos passes data when control=0, Z when control=1
+         mir_value_t input = vlog_lower_rvalue(g, vlog_param(v, first_term));
+         input = mir_build_unary(g->mu, MIR_VEC_BIT_NOT, t_logic, input);
+         input = mir_build_unary(g->mu, MIR_VEC_BIT_NOT, t_logic, input);
+
+         mir_value_t ctrl = vlog_lower_rvalue(g, vlog_param(v, first_term + 1));
+         mir_value_t test = mir_build_test(g->mu, ctrl);
+         mir_value_t z = mir_const_vec(g->mu, t_logic, 0, 1);
+         value = mir_build_select(g->mu, t_logic, test, z, input);
+
+         if (kind == V_GATE_RPMOS)
+            strength = ST_PULLUP;
+      }
+      break;
+
    case V_GATE_CMOS:
    case V_GATE_RCMOS:
+      {
+         // cmos passes data when ncontrol=1 AND pcontrol=0, Z otherwise
+         mir_value_t input = vlog_lower_rvalue(g, vlog_param(v, first_term));
+         input = mir_build_unary(g->mu, MIR_VEC_BIT_NOT, t_logic, input);
+         input = mir_build_unary(g->mu, MIR_VEC_BIT_NOT, t_logic, input);
+
+         mir_value_t nctrl = vlog_lower_rvalue(g, vlog_param(v, first_term + 1));
+         mir_value_t pctrl = vlog_lower_rvalue(g, vlog_param(v, first_term + 2));
+         mir_value_t pnot = mir_build_unary(g->mu, MIR_VEC_BIT_NOT, t_logic,
+                                            pctrl);
+         mir_value_t en = mir_build_binary(g->mu, MIR_VEC_BIT_AND, t_logic,
+                                           nctrl, pnot);
+         mir_value_t test = mir_build_test(g->mu, en);
+         mir_value_t z = mir_const_vec(g->mu, t_logic, 0, 1);
+         value = mir_build_select(g->mu, t_logic, test, input, z);
+
+         if (kind == V_GATE_RCMOS)
+            strength = ST_PULLUP;
+      }
+      break;
+
    case V_GATE_TRAN:
    case V_GATE_RTRAN:
       {
+         // Unconditional bidirectional pass
          mir_value_t input = vlog_lower_rvalue(g, vlog_param(v, first_term));
          value = mir_build_unary(g->mu, MIR_VEC_BIT_NOT, t_logic, input);
          value = mir_build_unary(g->mu, MIR_VEC_BIT_NOT, t_logic, value);
+
+         if (kind == V_GATE_RTRAN)
+            strength = ST_PULLUP;
+      }
+      break;
+
+   case V_GATE_TRANIF1:
+   case V_GATE_RTRANIF1:
+      {
+         // tranif1 passes when control=1, Z when control=0
+         mir_value_t input = vlog_lower_rvalue(g, vlog_param(v, first_term));
+         input = mir_build_unary(g->mu, MIR_VEC_BIT_NOT, t_logic, input);
+         input = mir_build_unary(g->mu, MIR_VEC_BIT_NOT, t_logic, input);
+
+         mir_value_t ctrl = vlog_lower_rvalue(g, vlog_param(v, first_term + 1));
+         mir_value_t test = mir_build_test(g->mu, ctrl);
+         mir_value_t z = mir_const_vec(g->mu, t_logic, 0, 1);
+         value = mir_build_select(g->mu, t_logic, test, input, z);
+
+         if (kind == V_GATE_RTRANIF1)
+            strength = ST_PULLUP;
+      }
+      break;
+
+   case V_GATE_TRANIF0:
+   case V_GATE_RTRANIF0:
+      {
+         // tranif0 passes when control=0, Z when control=1
+         mir_value_t input = vlog_lower_rvalue(g, vlog_param(v, first_term));
+         input = mir_build_unary(g->mu, MIR_VEC_BIT_NOT, t_logic, input);
+         input = mir_build_unary(g->mu, MIR_VEC_BIT_NOT, t_logic, input);
+
+         mir_value_t ctrl = vlog_lower_rvalue(g, vlog_param(v, first_term + 1));
+         mir_value_t test = mir_build_test(g->mu, ctrl);
+         mir_value_t z = mir_const_vec(g->mu, t_logic, 0, 1);
+         value = mir_build_select(g->mu, t_logic, test, z, input);
+
+         if (kind == V_GATE_RTRANIF0)
+            strength = ST_PULLUP;
       }
       break;
 
