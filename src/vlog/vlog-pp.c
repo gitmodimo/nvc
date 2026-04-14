@@ -484,6 +484,16 @@ static void p_text_macro_definition(void)
          break;
       case tCOMMENT:
          consume(tok);
+         if (mode == PP_C_COMMENT) {
+            while (mode == PP_C_COMMENT) {
+               const token_t ctok = peek();
+               if (ctok == tEOF) break;
+               consume(ctok);
+               if (ctok == tNEWLINE)
+                  tb_append(output, '\n');
+            }
+            break;
+         }
          goto done;
       default:
          one_of(tTEXT, tWHITESPACE, tMACROUSAGE);
