@@ -618,14 +618,25 @@ static void p_text_macro_usage(void)
       }
    }
 
-   // Only emit location tracking when the macro starts at a token
-   // boundary.  If the last character output was not whitespace or a
-   // newline, the macro is expanding in the middle of a token (e.g.
-   // 32'd`MACRO) and inserting directives would break the token.
+   // Only emit location tracking when the macro is at a token
+   // boundary on both sides.  If the last character output was not
+   // whitespace or a newline, the macro is expanding in the middle of
+   // a token (e.g. 32'd`MACRO).  Similarly, if the next character in
+   // the input is an apostrophe, the macro result will form a sized
+   // literal with the trailing text (e.g. `W'd0 where `W expands to
+   // 5, forming the sized literal 5'd0).  In both cases, inserting
+   // location directives would break the token.
    const size_t outlen = tb_len(output);
    const char last = outlen > 0 ? tb_get(output)[outlen - 1] : '\0';
-   const bool at_boundary = last == '\0' || last == ' '
+   const bool leading_boundary = last == '\0' || last == ' '
       || last == '\t' || last == '\n';
+
+   scan_buf_t trailing_buf = get_input_buffer();
+   char trailing_ch;
+   const bool trailing_boundary = !scan_peek(trailing_buf, &trailing_ch)
+      || trailing_ch != '\'';
+
+   const bool at_boundary = leading_boundary && trailing_boundary;
 
    if (emit_locs && at_boundary)
       tb_printf(output, "\n`__nvc_push %pi,%d:%d,%d\n", name,
