@@ -279,6 +279,12 @@ typedef enum {
    V_GATE_RTRAN,
    V_GATE_RTRANIF0,
    V_GATE_RTRANIF1,
+   V_GATE_NMOS,
+   V_GATE_PMOS,
+   V_GATE_CMOS,
+   V_GATE_RNMOS,
+   V_GATE_RPMOS,
+   V_GATE_RCMOS,
 } vlog_gate_kind_t;
 
 typedef enum {

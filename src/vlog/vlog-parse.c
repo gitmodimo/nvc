@@ -237,6 +237,12 @@ static vlog_gate_kind_t get_gate_kind(token_t tok)
    case tRTRAN:    return V_GATE_RTRAN;
    case tRTRANIF0: return V_GATE_RTRANIF0;
    case tRTRANIF1: return V_GATE_RTRANIF1;
+   case tNMOS:     return V_GATE_NMOS;
+   case tPMOS:     return V_GATE_PMOS;
+   case tCMOS:     return V_GATE_CMOS;
+   case tRNMOS:    return V_GATE_RNMOS;
+   case tRPMOS:    return V_GATE_RPMOS;
+   case tRCMOS:    return V_GATE_RCMOS;
    default:        should_not_reach_here();
    }
 }
@@ -4842,6 +4848,50 @@ static vlog_node_t p_pass_enable_switch_instance(vlog_gate_kind_t kind)
    return v;
 }
 
+static vlog_node_t p_cmos_switch_instance(vlog_gate_kind_t kind)
+{
+   // [ name_of_instance ] ( output_terminal , input_terminal ,
+   //     ncontrol_terminal , pcontrol_terminal )
+
+   BEGIN("CMOS switch instance");
+
+   vlog_node_t v = vlog_new(V_GATE_INST);
+   vlog_set_subkind(v, kind);
+
+   if (peek() == tID) {
+      vlog_set_ident(v, p_identifier());
+      vlog_set_loc(v, &state.last_loc);
+      vlog_symtab_put(symtab, v);
+   }
+   else
+      vlog_set_ident(v, default_label("gate"));
+
+   consume(tLPAREN);
+
+   vlog_symtab_set_implicit(symtab, implicit_kind);
+
+   vlog_set_target(v, p_net_lvalue());
+
+   consume(tCOMMA);
+
+   vlog_add_param(v, p_expression());
+
+   consume(tCOMMA);
+
+   vlog_add_param(v, p_expression());
+
+   consume(tCOMMA);
+
+   vlog_add_param(v, p_expression());
+
+   vlog_symtab_set_implicit(symtab, V_NET_NONE);
+
+   consume(tRPAREN);
+
+   vlog_set_loc(v, CURRENT_LOC);
+   return v;
+}
+
 static void p_gate_instantiation(vlog_node_t mod)
 {
    // cmos_switchtype [ delay3 ] cmos_switch_instance
@@ -4867,7 +4917,8 @@ static void p_gate_instantiation(vlog_node_t mod)
    token_t token = one_of(tPULLDOWN, tPULLUP, tAND, tNAND, tOR, tNOR,
                           tXOR, tXNOR, tNOT, tBUF, tBUFIF0, tBUFIF1,
                           tNOTIF0, tNOTIF1, tTRAN, tRTRAN, tTRANIF0, tTRANIF1,
-                          tRTRANIF0, tRTRANIF1);
+                          tRTRANIF0, tRTRANIF1, tNMOS, tPMOS, tCMOS,
+                          tRNMOS, tRPMOS, tRCMOS);
 
    switch (token) {
    case tPULLDOWN:
@@ -4956,9 +5007,42 @@ static void p_gate_instantiation(vlog_node_t mod)
       }
       break;
 
+   case tNMOS:
+   case tPMOS:
+   case tRNMOS:
+   case tRPMOS:
+      {
+         if (peek() == tHASH)
+            p_delay3();
+
+         const vlog_gate_kind_t kind = get_gate_kind(token);
+
+         do {
+            vlog_add_stmt(mod, p_enable_gate_instance(kind));
+         } while (optional(tCOMMA));
+      }
+      break;
+
+   case tCMOS:
+   case tRCMOS:
+      {
+         if (peek() == tHASH)
+            p_delay3();
+
+         const vlog_gate_kind_t kind = get_gate_kind(token);
+
+         do {
+            vlog_add_stmt(mod, p_cmos_switch_instance(kind));
+         } while (optional(tCOMMA));
+      }
+      break;
+
    case tTRAN:
    case tRTRAN:
       {
+         if (peek() == tHASH)
+            p_delay2();
+
          const vlog_gate_kind_t kind = get_gate_kind(token);
 
          do {
@@ -6055,6 +6139,12 @@ static void p_module_or_generate_item(vlog_node_t mod)
    case tRTRAN:
    case tRTRANIF0:
    case tRTRANIF1:
+   case tNMOS:
+   case tPMOS:
+   case tCMOS:
+   case tRNMOS:
+   case tRPMOS:
+   case tRCMOS:
       p_gate_instantiation(mod);
       break;
    case tDEFPARAM:
@@ -6078,7 +6168,8 @@ static void p_module_or_generate_item(vlog_node_t mod)
              tFOR, tEVENT, tGENVAR, tVAR, tLOGIC, tBIT, tSHORTINT, tLONGINT,
              tBYTE, tSTRINGK, tIMPORT, tPULLDOWN, tPULLUP, tID, tAND, tNAND,
              tOR, tNOR, tXOR, tXNOR, tNOT, tBUF, tBUFIF0, tBUFIF1, tNOTIF0,
-             tNOTIF1, tDEFPARAM, tID);
+             tNOTIF1, tNMOS, tPMOS, tCMOS, tRNMOS, tRPMOS, tRCMOS,
+             tDEFPARAM, tID);
       drop_tokens_until(&state, tSEMI);
    }
 }
@@ -6171,6 +6262,12 @@ static void p_non_port_module_item(vlog_node_t mod)
    case tRTRAN:
    case tRTRANIF0:
    case tRTRANIF1:
+   case tNMOS:
+   case tPMOS:
+   case tCMOS:
+   case tRNMOS:
+   case tRPMOS:
+   case tRCMOS:
    case tTYPEDEF:
    case tENUM:
    case tSVINT:
@@ -6213,7 +6310,8 @@ static void p_non_port_module_item(vlog_node_t mod)
              tENUM, tSVINT, tINTEGER, tSVREAL, tSHORTREAL, tREALTIME, tTIME,
              tTASK, tFUNCTION, tLOCALPARAM, tPARAMETER, tEVENT, tIF, tFOR,
              tGENVAR, tVAR, tLOGIC, tBIT, tSHORTINT, tLONGINT, tBYTE, tSTRINGK,
-             tIMPORT, tDEFPARAM, tSPECIFY, tGENERATE);
+             tIMPORT, tNMOS, tPMOS, tCMOS, tRNMOS, tRPMOS, tRCMOS,
+             tDEFPARAM, tSPECIFY, tGENERATE);
       drop_tokens_until(&state, tSEMI);
    }
 }

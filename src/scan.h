@@ -582,5 +582,11 @@ void reset_sdf_parser(void);
 #define tNEWLINE       638
 #define tCONTINUATION  639
 #define tCOMMENT       640
+#define tNMOS          641
+#define tPMOS          642
+#define tCMOS          643
+#define tRNMOS         644
+#define tRPMOS         645
+#define tRCMOS         646
 
 #endif  // _SCAN_H

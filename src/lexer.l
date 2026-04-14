@@ -805,6 +805,12 @@ PROTECT           ?i:protect
 <VLOG>"rtran"            { return tTRAN; }
 <VLOG>"rtranif0"         { return tTRANIF0; }
 <VLOG>"rtranif1"         { return tTRANIF1; }
+<VLOG>"nmos"             { return tNMOS; }
+<VLOG>"pmos"             { return tPMOS; }
+<VLOG>"cmos"             { return tCMOS; }
+<VLOG>"rnmos"            { return tRNMOS; }
+<VLOG>"rpmos"            { return tRPMOS; }
+<VLOG>"rcmos"            { return tRCMOS; }
 <VLOG>"struct"           { return KEYWORD_2005(tSTRUCT); }
 <VLOG>"packed"           { return KEYWORD_2005(tPACKED); }
 <VLOG>"void"             { return KEYWORD_2005(tVOID); }

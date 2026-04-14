@@ -2375,6 +2375,21 @@ static void vlog_lower_gate_inst(vlog_gen_t *g, vlog_node_t v)
       }
       break;
 
+   case V_GATE_NMOS:
+   case V_GATE_PMOS:
+   case V_GATE_RNMOS:
+   case V_GATE_RPMOS:
+   case V_GATE_CMOS:
+   case V_GATE_RCMOS:
+   case V_GATE_TRAN:
+   case V_GATE_RTRAN:
+      {
+         mir_value_t input = vlog_lower_rvalue(g, vlog_param(v, first_term));
+         value = mir_build_unary(g->mu, MIR_VEC_BIT_NOT, t_logic, input);
+         value = mir_build_unary(g->mu, MIR_VEC_BIT_NOT, t_logic, value);
+      }
+      break;
+
    default:
       CANNOT_HANDLE(v);
    }
