@@ -329,6 +329,26 @@ static PLI_INT32 time_tf(PLI_BYTE8 *userdata)
    return 0;
 }
 
+static PLI_INT32 realtime_tf(PLI_BYTE8 *userdata)
+{
+   rt_model_t *m = get_model();
+   // TODO: scale by module time unit once timescale is implemented
+   const int64_t now = model_now(m, NULL);
+
+   s_vpi_value result = {
+      .format = vpiRealVal,
+      .value = { .real = (double)now },
+   };
+
+   vpiHandle call = vpi_handle(vpiSysTfCall, NULL);
+   assert(call != NULL);
+
+   vpi_put_value(call, &result, NULL, 0);
+
+   vpi_release_handle(call);
+   return 0;
+}
+
 static PLI_INT32 random_tf(PLI_BYTE8 *userdata)
 {
    static __thread int32_t i_seed;
@@ -435,6 +455,12 @@ static s_vpi_systf_data builtins[] = {
       .tfname      = "$time",
       .sysfunctype = vpiTimeFunc,
       .calltf      = time_tf
+   },
+   {
+      .type        = vpiSysFunc,
+      .tfname      = "$realtime",
+      .sysfunctype = vpiRealFunc,
+      .calltf      = realtime_tf
    },
    {
       .type        = vpiSysFunc,

@@ -39,7 +39,7 @@ typedef uint32_t type_mask_t;
    (TM(DT_LOGIC) | TM(DT_INTEGER) | TM(DT_BYTE) | TM(DT_SHORTINT) \
     | TM(DT_INT) | TM(DT_LONGINT) | TM(DT_TIME) | TM(DT_BIT) | TM_ENUM \
     | TM(DT_IMPLICIT))
-#define TM_REAL (TM(DT_REAL) | TM(DT_SHORTREAL))
+#define TM_REAL (TM(DT_REAL) | TM(DT_SHORTREAL) | TM(DT_REALTIME))
 #define TM_STRICT (TM_STRUCT | TM_CLASS)
 
 static void vlog_check_decls(vlog_node_t v);
@@ -100,6 +100,7 @@ static const char *type_mask_str(type_mask_t tm)
    case TM(DT_SHORTINT): return "shortint";
    case TM(DT_REAL): return "real";
    case TM(DT_SHORTREAL): return "shortreal";
+   case TM(DT_REALTIME): return "realtime";
    case TM(DT_TIME): return "time";
    case TM_REAL: return "real";
    case TM_CLASS: return "class";
@@ -987,6 +988,8 @@ static type_mask_t vlog_check_sys_fcall(vlog_node_t v)
    switch (is_well_known(vlog_ident(v))) {
    case W_DLR_CLOG2:
       return TM_INTEGRAL | TM_CONST;
+   case W_DLR_REALTIME:
+      return TM_REAL;
    default:
       return TM_INTEGRAL;
    }

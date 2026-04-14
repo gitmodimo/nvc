@@ -179,6 +179,8 @@ static const type_info_t *vlog_type_info(vlog_gen_t *g, vlog_node_t v)
 
    switch (vlog_subkind(v)) {
    case DT_REAL:
+   case DT_SHORTREAL:
+   case DT_REALTIME:
       ti->size   = 1;
       ti->type   = ti->unpacked = mir_real_type(g->mu, -DBL_MAX, DBL_MAX);
       ti->signal = mir_signal_type(g->mu, ti->type);
@@ -761,6 +763,7 @@ static bool vlog_has_side_effects(vlog_node_t v)
    case V_BIT_SELECT:
    case V_PART_SELECT:
    case V_NUMBER:
+   case V_REAL:
       return false;
    case V_UNARY:
       return vlog_has_side_effects(vlog_value(v));
@@ -911,6 +914,21 @@ static mir_value_t vlog_lower_binary(vlog_gen_t *g, vlog_node_t v,
       case V_BINARY_MINUS:
          result = mir_build_sub(g->mu, type, left, right);
          break;
+      case V_BINARY_EXP:
+         result = mir_build_exp(g->mu, type, left, right);
+         break;
+      case V_BINARY_LT:
+         result = mir_build_cmp(g->mu, MIR_CMP_LT, left, right);
+         break;
+      case V_BINARY_GT:
+         result = mir_build_cmp(g->mu, MIR_CMP_GT, left, right);
+         break;
+      case V_BINARY_LEQ:
+         result = mir_build_cmp(g->mu, MIR_CMP_LEQ, left, right);
+         break;
+      case V_BINARY_GEQ:
+         result = mir_build_cmp(g->mu, MIR_CMP_GEQ, left, right);
+         break;
       default:
          CANNOT_HANDLE(v);
       }
@@ -942,7 +960,16 @@ static mir_value_t vlog_lower_operator_assignment(vlog_gen_t *g, vlog_node_t v)
       if (mir_get_class(g->mu, type) == MIR_TYPE_REAL) {
          switch (kind) {
          case V_ASSIGN_PLUS:
-            value = mir_build_add(g->mu,type, cur, cast);
+            value = mir_build_add(g->mu, type, cur, cast);
+            break;
+         case V_ASSIGN_MINUS:
+            value = mir_build_sub(g->mu, type, cur, cast);
+            break;
+         case V_ASSIGN_TIMES:
+            value = mir_build_mul(g->mu, type, cur, cast);
+            break;
+         case V_ASSIGN_DIVIDE:
+            value = mir_build_div(g->mu, type, cur, cast);
             break;
          default:
             CANNOT_HANDLE(v);
@@ -1382,9 +1409,15 @@ static mir_value_t vlog_lower_with_context(vlog_gen_t *g, vlog_node_t v,
          mir_type_t ltype = mir_get_type(g->mu, left);
          mir_type_t rtype = mir_get_type(g->mu, right);
 
-         unsigned size = MAX(mir_get_size(g->mu, ltype),
-                             mir_get_size(g->mu, rtype));
-         mir_type_t type = mir_vec4_type(g->mu, size, false);
+         mir_type_t type;
+         if (mir_get_class(g->mu, ltype) == MIR_TYPE_REAL
+             || mir_get_class(g->mu, rtype) == MIR_TYPE_REAL)
+            type = mir_double_type(g->mu);
+         else {
+            unsigned size = MAX(mir_get_size(g->mu, ltype),
+                                mir_get_size(g->mu, rtype));
+            type = mir_vec4_type(g->mu, size, false);
+         }
 
          mir_value_t lcast = mir_build_cast(g->mu, type, left);
          mir_value_t rcast = mir_build_cast(g->mu, type, right);

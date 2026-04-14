@@ -213,6 +213,8 @@ static type_t trans_type(trans_gen_t *g, vlog_node_t decl,
       return trans_sized_type(decl, packed_type, 64);
 
    case DT_REAL:
+   case DT_SHORTREAL:
+   case DT_REALTIME:
       return std_type(NULL, STD_REAL);
 
    default:

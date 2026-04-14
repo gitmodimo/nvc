@@ -1312,6 +1312,7 @@ vlog49          verilog
 vlog50          verilog
 vlog51          shell
 vlog52          verilog
+vlog57          verilog
 vlog59          verilog
 # vlog60          verilog         # blocked: V_FORK sem handling
 vlog61          verilog

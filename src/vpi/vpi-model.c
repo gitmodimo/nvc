@@ -1203,10 +1203,11 @@ void vpi_get_value(vpiHandle handle, p_vpi_value value_p)
 
       switch (value_p->format) {
       case vpiRealVal:
-         if (vlog_subkind(type) != DT_REAL)
+         if (vlog_subkind(type) != DT_REAL && vlog_subkind(type) != DT_SHORTREAL
+             && vlog_subkind(type) != DT_REALTIME)
             goto fail;
 
-         value_p->format = unaligned_load(signal_value(s), double);
+         value_p->value.real = unaligned_load(signal_value(s), double);
          return;
 
       default:
@@ -1281,6 +1282,7 @@ vpiHandle vpi_put_value(vpiHandle handle, p_vpi_value value_p,
             assert(value_p->format == vpiRealVal);
 
             c->args[0].real = value_p->value.real;
+
             return NULL;
          }
       }

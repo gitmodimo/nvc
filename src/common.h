@@ -297,6 +297,7 @@ typedef enum {
    W_DLR_SIGNED,
    W_DLR_UNSIGNED,
    W_DLR_CLOG2,
+   W_DLR_REALTIME,
    W_COUNTERS,
 
    NUM_WELL_KNOWN
