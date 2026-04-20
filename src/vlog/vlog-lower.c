@@ -2185,6 +2185,8 @@ static void vlog_lower_user_tcall(vlog_gen_t *g, vlog_node_t v)
    const int nparams = vlog_params(v);
    mir_value_t *args LOCAL =
       xmalloc_array(nparams + 1, sizeof(mir_value_t));
+   mir_value_t *out_tmps LOCAL =
+      xmalloc_array(nparams, sizeof(mir_value_t));
 
    if (vlog_has_value(v) && vlog_kind(vlog_value(v)) == V_HIER_REF) {
       // Hier-ref task/func call: the target runs in the remote
@@ -2198,10 +2200,29 @@ static void vlog_lower_user_tcall(vlog_gen_t *g, vlog_node_t v)
       args[0] = mir_build_context_upref(g->mu, 1);
 
    for (int i = 0; i < nparams; i++) {
-      mir_value_t value = vlog_lower_rvalue(g, vlog_param(v, i));
-      vlog_node_t dt = vlog_type(vlog_port(decl, i));
+      vlog_node_t port = vlog_port(decl, i);
+      vlog_node_t dt = vlog_type(port);
       const type_info_t *ti = vlog_type_info(g, dt);
-      args[i + 1] = mir_build_cast(g->mu, ti->type, value);
+      const v_port_kind_t dir = vlog_subkind(port);
+
+      out_tmps[i] = MIR_NULL_VALUE;
+
+      if (dir == V_PORT_INOUT || dir == V_PORT_OUTPUT) {
+         mir_value_t tmp = mir_add_var(g->mu, ti->type, ti->stamp,
+                                       ident_new("out_tmp"), 0);
+         out_tmps[i] = tmp;
+
+         if (dir == V_PORT_INOUT) {
+            mir_value_t value = vlog_lower_rvalue(g, vlog_param(v, i));
+            mir_build_store(g->mu, tmp, mir_build_cast(g->mu, ti->type, value));
+         }
+
+         args[i + 1] = tmp;
+      }
+      else {
+         mir_value_t value = vlog_lower_rvalue(g, vlog_param(v, i));
+         args[i + 1] = mir_build_cast(g->mu, ti->type, value);
+      }
    }
 
    mir_block_t resume_bb = mir_add_block(g->mu);
@@ -2209,6 +2230,13 @@ static void vlog_lower_user_tcall(vlog_gen_t *g, vlog_node_t v)
 
    mir_set_cursor(g->mu, resume_bb, MIR_APPEND);
    mir_build_resume(g->mu, func);
+
+   for (int i = 0; i < nparams; i++) {
+      if (!mir_is_null(out_tmps[i])) {
+         mir_value_t val = mir_build_load(g->mu, out_tmps[i]);
+         vlog_assign_variable(g, vlog_param(v, i), val, NULL);
+      }
+   }
 }
 
 static void vlog_lower_stmts(vlog_gen_t *g, vlog_node_t v)
@@ -3133,24 +3161,57 @@ static void vlog_lower_task_decl(mir_unit_t *mu, object_t *obj)
    mir_add_param(mu, t_context, MIR_NULL_STAMP, ident_new("context"));
 
    const int nports = vlog_ports(v);
+   mir_value_t *out_ptrs LOCAL =
+      xmalloc_array(nports, sizeof(mir_value_t));
+   mir_value_t *out_locals LOCAL =
+      xmalloc_array(nports, sizeof(mir_value_t));
+
    for (int i = 0; i < nports; i++) {
       vlog_node_t port = vlog_port(v, i);
       const type_info_t *pti = vlog_type_info(&g, vlog_type(port));
       ident_t name = vlog_ident(port);
+      const v_port_kind_t dir = vlog_subkind(port);
 
-      mir_value_t param = mir_add_param(mu, pti->type, pti->stamp, name);
+      out_ptrs[i] = MIR_NULL_VALUE;
+      out_locals[i] = MIR_NULL_VALUE;
 
-      mir_value_t local = mir_add_var(mu, pti->type, pti->stamp, name, 0);
-      mir_put_object(mu, port, local);
+      if (dir == V_PORT_INOUT || dir == V_PORT_OUTPUT) {
+         mir_type_t t_ptr = mir_pointer_type(mu, pti->type);
+         mir_value_t param = mir_add_param(mu, t_ptr, MIR_NULL_STAMP, name);
 
-      mir_build_store(mu, local, param);
+         mir_value_t local = mir_add_var(mu, pti->type, pti->stamp, name, 0);
+         mir_put_object(mu, port, local);
+
+         out_ptrs[i] = param;
+         out_locals[i] = local;
+
+         if (dir == V_PORT_INOUT) {
+            mir_value_t init = mir_build_load(mu, param);
+            mir_build_store(mu, local, init);
+         }
+      }
+      else {
+         mir_value_t param = mir_add_param(mu, pti->type, pti->stamp, name);
+
+         mir_value_t local = mir_add_var(mu, pti->type, pti->stamp, name, 0);
+         mir_put_object(mu, port, local);
+
+         mir_build_store(mu, local, param);
+      }
    }
 
    vlog_lower_locals(&g, v);
    vlog_lower_stmts(&g, v);
 
-   if (!mir_block_finished(mu, MIR_NULL_BLOCK))
+   if (!mir_block_finished(mu, MIR_NULL_BLOCK)) {
+      for (int i = 0; i < nports; i++) {
+         if (!mir_is_null(out_ptrs[i])) {
+            mir_value_t val = mir_build_load(mu, out_locals[i]);
+            mir_build_store(mu, out_ptrs[i], val);
+         }
+      }
       mir_build_return(mu, MIR_NULL_VALUE);
+   }
 
    mir_optimise(mu, MIR_PASS_O1);
    vlog_lower_cleanup(&g);
