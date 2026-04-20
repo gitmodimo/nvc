@@ -128,6 +128,8 @@ static void set_timescale(uint64_t unit_value, const char *unit_name,
    // TODO: do something with parsed scale/precision
 }
 
+static void p_directive_list(void);
+
 static void skip_over_attributes(void)
 {
    while (peek() == tATTRBEGIN)
@@ -7234,30 +7236,41 @@ static vlog_node_t p_description(void)
 
    BEGIN("description");
 
-   skip_over_attributes();
+   for (;;) {
+      skip_over_attributes();
 
-   switch (peek()) {
-   case tMODULE:
-      return p_module_declaration();
-   case tPRIMITIVE:
-      return p_udp_declaration();
-   case tPACKAGE:
-      return p_package_declaration();
-   case tPROGRAM:
-      return p_program_declaration();
-   case tCLASS:
-   case tTYPEDEF:
-   case tIMPORT:
-      {
-         vlog_node_t v = vlog_new(V_NAMESPACE);
-         p_package_item(v);
-         vlog_set_loc(v, CURRENT_LOC);
-         return v;
+      switch (peek()) {
+      case tTIMESCALE:
+      case tDEFNETTYPE:
+      case tUNCTDRIVE:
+      case tNOUNCTDRIVE:
+      case tBEGINKEYWORDS:
+      case tENDKEYWORDS:
+      case tRESETALL:
+         p_directive_list();
+         continue;
+      case tMODULE:
+         return p_module_declaration();
+      case tPRIMITIVE:
+         return p_udp_declaration();
+      case tPACKAGE:
+         return p_package_declaration();
+      case tPROGRAM:
+         return p_program_declaration();
+      case tCLASS:
+      case tTYPEDEF:
+      case tIMPORT:
+         {
+            vlog_node_t v = vlog_new(V_NAMESPACE);
+            p_package_item(v);
+            vlog_set_loc(v, CURRENT_LOC);
+            return v;
+         }
+      default:
+         expect(tPRIMITIVE, tMODULE, tPACKAGE, tPROGRAM, tCLASS, tTYPEDEF,
+                tIMPORT);
+         return NULL;
       }
-   default:
-      expect(tPRIMITIVE, tMODULE, tPACKAGE, tPROGRAM, tCLASS, tTYPEDEF,
-             tIMPORT);
-      return NULL;
    }
 }
 
