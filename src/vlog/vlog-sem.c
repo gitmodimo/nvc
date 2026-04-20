@@ -560,11 +560,25 @@ static void vlog_check_super_call(vlog_node_t v)
    // TODO: vlog_check_call_args()
 }
 
+static void vlog_check_proc_assign(vlog_node_t v)
+{
+   vlog_node_t target = vlog_target(v);
+   type_mask_t lmask = vlog_check_expr(target);
+
+   vlog_check_variable_lvalue(target, target);
+
+   vlog_node_t value = vlog_value(v);
+   type_mask_t rmask = vlog_check_expr(value);
+
+   vlog_check_same_type(target, lmask, value, rmask);
+}
+
 static void vlog_check_deassign(vlog_node_t v)
 {
-   error_at(vlog_loc(v), "procedural deassign statements are not supported "
-            "as they are being considered for removal from the System Verilog "
-            "standard");
+   vlog_node_t target = vlog_target(v);
+   vlog_check_expr(target);
+
+   vlog_check_variable_lvalue(target, target);
 }
 
 static void vlog_check_return(vlog_node_t v)
@@ -1184,6 +1198,9 @@ void vlog_check(vlog_node_t v)
    case V_PREFIX:
    case V_POSTFIX:
       vlog_check_prefix_postfix(v);
+      break;
+   case V_PROC_ASSIGN:
+      vlog_check_proc_assign(v);
       break;
    case V_DEASSIGN:
       vlog_check_deassign(v);

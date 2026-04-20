@@ -1007,6 +1007,7 @@ void vlog_dump(vlog_node_t v, int indent)
       vlog_dump_bassign(v, indent);
       break;
    case V_ASSIGN:
+   case V_PROC_ASSIGN:
       vlog_dump_assign(v, indent);
       break;
    case V_BLOCK:

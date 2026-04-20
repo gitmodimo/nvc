@@ -29,6 +29,7 @@
 #include "vlog/vlog-number.h"
 #include "vlog/vlog-phase.h"
 #include "vlog/vlog-util.h"
+#include "rt/rt.h"
 #include "vpi/vpi-model.h"
 #include "vpi/vpi_user.h"
 
@@ -79,6 +80,17 @@ static mir_value_t vlog_lower_rvalue(vlog_gen_t *g, vlog_node_t v);
 static mir_value_t vlog_lower_with_context(vlog_gen_t *g, vlog_node_t v,
                                            mir_type_t context);
 static void vlog_lower_deferred(mir_unit_t *mu, object_t *obj);
+static void vlog_lower_sensitivity(vlog_gen_t *g, vlog_node_t v);
+static void vlog_lower_cleanup(vlog_gen_t *g);
+static void vlog_lower_proc_assign_stmt(vlog_gen_t *g, vlog_node_t v);
+static void vlog_lower_deassign_stmt(vlog_gen_t *g, vlog_node_t v);
+
+// Procedural continuous assign companion metadata
+typedef struct {
+   int companion_id;
+} proc_assign_info_t;
+
+static hash_t *proc_assign_map = NULL;
 
 static const type_info_t *vlog_type_info(vlog_gen_t *g, vlog_node_t v)
 {
@@ -2024,6 +2036,12 @@ static void vlog_lower_stmts(vlog_gen_t *g, vlog_node_t v)
       case V_BASSIGN:
          vlog_lower_blocking_assignment(g, s);
          break;
+      case V_PROC_ASSIGN:
+         vlog_lower_proc_assign_stmt(g, s);
+         break;
+      case V_DEASSIGN:
+         vlog_lower_deassign_stmt(g, s);
+         break;
       case V_NBASSIGN:
          vlog_lower_non_blocking_assignment(g, s);
          break;
@@ -2217,6 +2235,177 @@ static void vlog_lower_sensitivity(vlog_gen_t *g, vlog_node_t v)
    default:
       CANNOT_HANDLE(v);
    }
+}
+
+static void vlog_lower_proc_assign_force(vlog_gen_t *g, vlog_node_t target,
+                                         vlog_node_t rhs)
+{
+   vlog_select_t lvalue = vlog_lower_select(g, target);
+
+   mir_type_t t_vec = mir_vec4_type(g->mu, lvalue.size, false);
+   mir_value_t value = vlog_lower_with_context(g, rhs, t_vec);
+   mir_value_t resize = mir_build_cast(g->mu, t_vec, value);
+
+   mir_value_t tmp = MIR_NULL_VALUE;
+   if (lvalue.size > 1) {
+      mir_type_t t_elem = mir_logic_type(g->mu);
+      mir_type_t t_array = mir_carray_type(g->mu, lvalue.size, t_elem);
+      tmp = vlog_get_temp(g, t_array);
+   }
+
+   mir_value_t unpacked = mir_build_unpack(g->mu, resize, 0, tmp);
+
+   mir_type_t t_offset = mir_offset_type(g->mu);
+   mir_value_t nets = mir_build_array_ref(g->mu, lvalue.obj, lvalue.offset);
+   mir_value_t count = mir_const(g->mu, t_offset, lvalue.size);
+
+   mir_build_force(g->mu, nets, count, unpacked);
+}
+
+static void vlog_lower_proc_assign_stmt(vlog_gen_t *g, vlog_node_t v)
+{
+   PUSH_DEBUG_INFO(g->mu, v);
+
+   proc_assign_info_t *info = hash_get(proc_assign_map, v);
+   if (info == NULL) {
+      // No companion created (should not happen for valid code)
+      vlog_assign_variable(g, vlog_target(v), MIR_NULL_VALUE, vlog_value(v));
+      return;
+   }
+
+   mir_type_t t_int32 = mir_int_type(g->mu, INT32_MIN, INT32_MAX);
+   mir_type_t t_offset = mir_offset_type(g->mu);
+
+   // Deposit companion_id to active_id signal
+   int hops;
+   mir_value_t active_id_var = mir_search_object(g->mu, v, &hops);
+   assert(!mir_is_null(active_id_var));
+
+   mir_value_t upref = active_id_var;
+   if (hops > 0)
+      upref = mir_build_var_upref(g->mu, hops, active_id_var.id);
+   mir_value_t active_nets = mir_build_load(g->mu, upref);
+
+   mir_value_t id_val = mir_const(g->mu, t_int32, info->companion_id);
+   mir_value_t one = mir_const(g->mu, t_offset, 1);
+   mir_build_deposit_signal(g->mu, active_nets, one, id_val);
+
+   // Release any existing force, deposit value, then re-force.
+   // Release first so deposit_signal is not blocked by NET_F_FORCED.
+   // Deposit ensures the value persists after a future deassign.
+   // Force provides override semantics while assign is active.
+   {
+      vlog_node_t target = vlog_target(v);
+      vlog_select_t lvalue = vlog_lower_select(g, target);
+      mir_value_t nets = mir_build_array_ref(g->mu, lvalue.obj, lvalue.offset);
+      mir_value_t count = mir_const(g->mu, t_offset, lvalue.size);
+      mir_build_release(g->mu, nets, count);
+   }
+   vlog_assign_variable(g, vlog_target(v), MIR_NULL_VALUE, vlog_value(v));
+   vlog_lower_proc_assign_force(g, vlog_target(v), vlog_value(v));
+}
+
+static void vlog_lower_deassign_stmt(vlog_gen_t *g, vlog_node_t v)
+{
+   PUSH_DEBUG_INFO(g->mu, v);
+
+   mir_type_t t_int32 = mir_int_type(g->mu, INT32_MIN, INT32_MAX);
+   mir_type_t t_offset = mir_offset_type(g->mu);
+
+   // Deposit 0 to active_id signal (deactivate all companions)
+   int hops;
+   mir_value_t active_id_var = mir_search_object(g->mu, v, &hops);
+
+   if (!mir_is_null(active_id_var)) {
+      mir_value_t upref = active_id_var;
+      if (hops > 0)
+         upref = mir_build_var_upref(g->mu, hops, active_id_var.id);
+      mir_value_t active_nets = mir_build_load(g->mu, upref);
+
+      mir_value_t zero = mir_const(g->mu, t_int32, 0);
+      mir_value_t one = mir_const(g->mu, t_offset, 1);
+      mir_build_deposit_signal(g->mu, active_nets, one, zero);
+   }
+
+   // Release force on target signal
+   // The value persists because var signals have SIG_F_REGISTER
+   // and the assign also deposited the value via blocking assignment
+   vlog_node_t target = vlog_target(v);
+   vlog_select_t lvalue = vlog_lower_select(g, target);
+
+   mir_value_t nets = mir_build_array_ref(g->mu, lvalue.obj, lvalue.offset);
+   mir_value_t count = mir_const(g->mu, t_offset, lvalue.size);
+
+   mir_build_release(g->mu, nets, count);
+}
+
+static void vlog_lower_proc_assign_companion(mir_unit_t *mu, object_t *obj)
+{
+   vlog_node_t pa = vlog_from_object(obj);
+   assert(vlog_kind(pa) == V_PROC_ASSIGN);
+
+   proc_assign_info_t *info = hash_get(proc_assign_map, pa);
+   assert(info != NULL);
+
+   vlog_gen_t g = { .mu = mu };
+
+   mir_block_t start_bb = mir_add_block(mu);
+   assert(start_bb.id == 1);
+
+   // Reset phase: set up sensitivity on RHS signals
+   vlog_lower_sensitivity(&g, vlog_value(pa));
+
+   // Reset phase: set up sensitivity on active_id signal
+   {
+      int hops;
+      mir_value_t active_id_var = mir_search_object(mu, pa, &hops);
+      assert(!mir_is_null(active_id_var));
+
+      mir_value_t upref = mir_build_var_upref(mu, hops, active_id_var.id);
+      mir_value_t nets = mir_build_load(mu, upref);
+
+      mir_type_t t_offset = mir_offset_type(mu);
+      mir_value_t count = mir_const(mu, t_offset, 1);
+      mir_build_sched_event(mu, nets, count);
+   }
+
+   mir_build_return(mu, MIR_NULL_VALUE);
+
+   // Body
+   mir_set_cursor(mu, start_bb, MIR_APPEND);
+
+   mir_type_t t_int32 = mir_int_type(mu, INT32_MIN, INT32_MAX);
+
+   // Load active_id and check if we're the active companion
+   int hops;
+   mir_value_t active_id_var = mir_search_object(mu, pa, &hops);
+   mir_value_t upref = mir_build_var_upref(mu, hops, active_id_var.id);
+   mir_value_t active_nets = mir_build_load(mu, upref);
+   mir_value_t resolved = mir_build_resolved(mu, active_nets);
+   mir_value_t current_id = mir_build_load(mu, resolved);
+
+   mir_value_t my_id = mir_const(mu, t_int32, info->companion_id);
+   mir_value_t is_active = mir_build_cmp(mu, MIR_CMP_EQ, current_id, my_id);
+
+   mir_block_t force_bb = mir_add_block(mu);
+   mir_block_t wait_bb = mir_add_block(mu);
+
+   mir_build_cond(mu, is_active, force_bb, wait_bb);
+
+   // Force block: deposit and force target with RHS value
+   mir_set_cursor(mu, force_bb, MIR_APPEND);
+
+   vlog_assign_variable(&g, vlog_target(pa), MIR_NULL_VALUE, vlog_value(pa));
+   vlog_lower_proc_assign_force(&g, vlog_target(pa), vlog_value(pa));
+
+   mir_build_jump(mu, wait_bb);
+
+   // Wait block
+   mir_set_cursor(mu, wait_bb, MIR_APPEND);
+   mir_build_wait(mu, start_bb);
+
+   mir_optimise(mu, MIR_PASS_O1);
+   vlog_lower_cleanup(&g);
 }
 
 static void vlog_lower_assign_process(vlog_gen_t *g, vlog_node_t v)
@@ -2732,7 +2921,7 @@ static void vlog_lower_var_decl(vlog_gen_t *g, vlog_node_t v, tree_t wrap)
 
    mir_value_t count = mir_const(g->mu, t_offset, total_size);
    mir_value_t size = mir_const(g->mu, t_offset, ti->elemsz);
-   mir_value_t flags = mir_const(g->mu, t_offset, 0);
+   mir_value_t flags = mir_const(g->mu, t_offset, SIG_F_REGISTER);
    mir_value_t locus = mir_build_debug_locus(g->mu, tree_to_object(wrap));
 
    mir_value_t signal = mir_build_init_signal(g->mu, ti->unpacked, count, size,
@@ -3041,6 +3230,147 @@ static void vlog_lower_convert_out(mir_unit_t *mu, object_t *obj)
    vlog_lower_converter(mu, cf);
 }
 
+static vlog_node_t pa_resolve_target_decl(vlog_node_t target)
+{
+   switch (vlog_kind(target)) {
+   case V_REF:
+      {
+         vlog_node_t decl = vlog_ref(target);
+         if (vlog_kind(decl) == V_PORT_DECL && vlog_has_ref(decl))
+            return vlog_ref(decl);
+         return decl;
+      }
+   case V_BIT_SELECT:
+   case V_PART_SELECT:
+      return pa_resolve_target_decl(vlog_value(target));
+   default:
+      return NULL;
+   }
+}
+
+typedef struct {
+   vlog_node_t *items;
+   int          count;
+   int          max;
+} pa_list_t;
+
+static void pa_collect_cb(vlog_node_t v, void *ctx)
+{
+   pa_list_t *list = ctx;
+   if (list->count >= list->max) {
+      list->max = MAX(list->max * 2, 16);
+      list->items = xrealloc_array(list->items, list->max, sizeof(vlog_node_t));
+   }
+   list->items[list->count++] = v;
+}
+
+static void vlog_lower_proc_assign_prepass(mir_context_t *mc, mir_unit_t *mu,
+                                           vlog_node_t body, ident_t qual,
+                                           mir_value_t self)
+{
+   // Collect all V_PROC_ASSIGN and V_DEASSIGN nodes in the instance
+   pa_list_t pa_list = {};
+   vlog_visit_only(body, pa_collect_cb, &pa_list, V_PROC_ASSIGN);
+
+   if (pa_list.count == 0) {
+      free(pa_list.items);
+      return;
+   }
+
+   pa_list_t da_list = {};
+   vlog_visit_only(body, pa_collect_cb, &da_list, V_DEASSIGN);
+
+   if (proc_assign_map == NULL)
+      proc_assign_map = hash_new(16);
+
+   // Group proc_assigns by target variable declaration
+   hash_t *target_groups = hash_new(16);
+   int next_id = 1;
+
+   for (int i = 0; i < pa_list.count; i++) {
+      vlog_node_t pa = pa_list.items[i];
+      vlog_node_t decl = pa_resolve_target_decl(vlog_target(pa));
+      if (decl == NULL)
+         continue;
+
+      // Check if we already have an active_id for this target
+      mir_value_t active_id_var =
+         (mir_value_t){ .bits = (uintptr_t)hash_get(target_groups, decl) };
+
+      if (mir_is_null(active_id_var)) {
+         // Create active_id signal for this target variable
+         mir_type_t t_int32 = mir_int_type(mu, INT32_MIN, INT32_MAX);
+         mir_type_t t_signal = mir_signal_type(mu, t_int32);
+         mir_type_t t_offset = mir_offset_type(mu);
+
+         mir_value_t init = mir_const(mu, t_int32, 0);
+         mir_value_t count = mir_const(mu, t_offset, 1);
+         mir_value_t size = mir_const(mu, t_offset, sizeof(int32_t));
+         mir_value_t flags = mir_const(mu, t_offset, 0);
+         mir_value_t locus = mir_build_debug_locus(mu, vlog_to_object(pa));
+
+         mir_value_t signal = mir_build_init_signal(mu, t_int32, count, size,
+                                                    init, flags, locus,
+                                                    MIR_NULL_VALUE);
+
+         ident_t name = ident_prefix(vlog_ident(decl),
+                                     ident_new("proc_assign"), '$');
+         active_id_var = mir_add_var(mu, t_signal, MIR_NULL_STAMP,
+                                     name, MIR_VAR_SIGNAL);
+         mir_build_store(mu, active_id_var, signal);
+
+         hash_put(target_groups, decl,
+                  (void *)(uintptr_t)active_id_var.bits);
+      }
+
+      // Register this proc_assign's active_id in the objmap
+      mir_put_object(mu, pa, active_id_var);
+
+      // Assign companion ID and store metadata
+      proc_assign_info_t *info = xmalloc(sizeof(proc_assign_info_t));
+      info->companion_id = next_id++;
+      hash_put(proc_assign_map, pa, info);
+
+      // Create companion process
+      ident_t sym = ident_sprintf("%s.proc_assign_%d",
+                                  istr(qual), info->companion_id);
+
+      mir_defer(mc, sym, qual, MIR_UNIT_PROCESS,
+                vlog_lower_proc_assign_companion, vlog_to_object(pa));
+
+      // Create T_VERILOG wrapper for the companion process locus
+      tree_t wrap = tree_new(T_VERILOG);
+      tree_set_ident(wrap, sym);
+      tree_set_vlog(wrap, pa);
+      tree_set_loc(wrap, vlog_loc(pa));
+
+      mir_type_t t_offset = mir_offset_type(mu);
+      mir_value_t args[] = { self };
+      mir_value_t closure = mir_build_closure(mu, sym, t_offset, args, 1);
+      mir_value_t proc_locus = mir_build_debug_locus(mu, tree_to_object(wrap));
+
+      mir_build_process_init(mu, closure, proc_locus);
+   }
+
+   // Register active_id in objmap for V_DEASSIGN nodes too
+   for (int i = 0; i < da_list.count; i++) {
+      vlog_node_t da = da_list.items[i];
+      vlog_node_t decl = pa_resolve_target_decl(vlog_target(da));
+      if (decl == NULL)
+         continue;
+
+      mir_value_t active_id_var =
+         (mir_value_t){ .bits = (uintptr_t)hash_get(target_groups, decl) };
+
+      if (!mir_is_null(active_id_var))
+         mir_put_object(mu, da, active_id_var);
+   }
+
+   hash_free(target_groups);
+   free(pa_list.items);
+   free(da_list.items);
+}
+
 void vlog_lower_instance(mir_context_t *mc, vlog_node_t body, ident_t parent,
                          tree_t trans)
 {
@@ -3131,6 +3461,8 @@ void vlog_lower_instance(mir_context_t *mc, vlog_node_t body, ident_t parent,
    }
 
    mir_value_t self = mir_build_context_upref(mu, 0);
+
+   vlog_lower_proc_assign_prepass(mc, mu, body, qual, self);
 
    const int nstmts = tree_stmts(trans);
    for (int i = 0; i < nstmts; i++) {

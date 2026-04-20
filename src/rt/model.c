@@ -1710,6 +1710,7 @@ static void setup_process(rt_proc_t *p, const char *path)
          vlog_node_t v = tree_vlog(p->where);
          switch (vlog_kind(v)) {
          case V_ASSIGN:
+         case V_PROC_ASSIGN:
          case V_PORT_MAP:
          case V_GATE_INST:
          case V_NET_DECL:
@@ -3480,6 +3481,12 @@ void deposit_signal(rt_model_t *m, rt_signal_t *s, const void *values,
    for (; count > 0; n = n->chain) {
       count -= n->width;
       assert(count >= 0);
+
+      // Skip deposit when signal is forced (procedural assign override)
+      if (n->flags & NET_F_FORCED) {
+         vptr += n->size * n->width;
+         continue;
+      }
 
       unsigned char *eff = nexus_effective(n);
       unsigned char *last = nexus_last_value(n);

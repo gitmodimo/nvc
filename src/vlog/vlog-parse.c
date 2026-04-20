@@ -2664,7 +2664,7 @@ static vlog_node_t p_procedural_continuous_assignment(void)
    switch (one_of(tASSIGN, tDEASSIGN, tFORCE, tRELEASE)) {
    case tASSIGN:
    default:
-      return p_variable_assignment(V_ASSIGN);
+      return p_variable_assignment(V_PROC_ASSIGN);
    case tDEASSIGN:
       {
          vlog_node_t v = vlog_new(V_DEASSIGN);
