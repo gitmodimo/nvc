@@ -1354,6 +1354,7 @@ vlog97          verilog
 # vlog98          verilog         # blocked: struct/union in module body
 vlog99          verilog
 # vlog100         shell           # blocked: event declaration in module
+vlog104         verilog
 vlog136         mixed
 vlog137         shell
 vlog138         shell

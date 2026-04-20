@@ -275,7 +275,7 @@ static bool scan_tf_item_declaration(void)
 {
    return scan(tREG, tSTRUCT, tUNION, tTYPEDEF, tENUM, tSVINT, tINTEGER,
                tSVREAL, tSHORTREAL, tREALTIME, tBIT, tLOGIC, tSHORTINT, tTIME,
-               tINPUT, tOUTPUT);
+               tINPUT, tOUTPUT, tINOUT);
 }
 
 static ident_t p_identifier(void)
@@ -3732,6 +3732,7 @@ static void p_tf_item_declaration(vlog_node_t tf)
    switch (peek()) {
    case tINPUT:
    case tOUTPUT:
+   case tINOUT:
    case tCONST:
       p_tf_port_declaration(tf);
       break;
