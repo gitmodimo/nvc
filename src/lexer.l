@@ -896,7 +896,18 @@ PROTECT           ?i:protect
 <VLOG>{VLOG_ID}          { yylval.ident = ident_new(yytext); return tID; }
 <VLOG>{VLOG_ESCAPED}     { yylval.ident = ident_new(yytext + 1); return tID; }
 <VLOG>{INTEGER}          { yylval.str = xstrdup(yytext); return tUNSNUM; }
-<VLOG>{VLOG_NUMBER}      { yylval.str = xstrdup(yytext); return tNUMBER; }
+<VLOG>{VLOG_NUMBER}      { if (last_token == tHASH) {
+                              const char *p = yytext;
+                              while (isdigit((unsigned char)*p) || *p == '_') p++;
+                              if (p > yytext && isspace((unsigned char)*p)) {
+                                 yyless(p - yytext);
+                                 yylval.str = xstrdup(yytext);
+                                 return (last_token = tUNSNUM);
+                              }
+                           }
+                           yylval.str = xstrdup(yytext);
+                           return (last_token = tNUMBER);
+                         }
 <VLOG>{VLOG_REAL}        { return parse_verilog_real(yytext); };
 <VLOG>{PAREN_STAR}       { return tPARENSTAR; }
 
