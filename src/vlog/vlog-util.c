@@ -17,11 +17,26 @@
 
 #include "util.h"
 #include "ident.h"
+#include "jit/jit.h"
+#include "mir/mir-unit.h"
 #include "vlog/vlog-node.h"
 #include "vlog/vlog-number.h"
+#include "vlog/vlog-phase.h"
 #include "vlog/vlog-util.h"
 
 #include <assert.h>
+
+static __thread vlog_const_eval_ctx_t *const_eval_ctx;
+
+void vlog_push_const_eval_ctx(vlog_const_eval_ctx_t *ctx)
+{
+   const_eval_ctx = ctx;
+}
+
+void vlog_pop_const_eval_ctx(void)
+{
+   const_eval_ctx = NULL;
+}
 
 bool vlog_is_net(vlog_node_t v)
 {
@@ -53,6 +68,13 @@ bool vlog_is_net(vlog_node_t v)
 unsigned vlog_dimensions(vlog_node_t v)
 {
    return vlog_ranges(vlog_type(v)) + vlog_ranges(v);
+}
+
+static void *vlog_eval_const_cb(jit_scalar_t *args, void *ctx)
+{
+   int64_t *result = ctx;
+   *result = args[0].integer;
+   return ctx;   // non-NULL signals success
 }
 
 bool vlog_get_const(vlog_node_t v, int64_t *value)
@@ -99,10 +121,22 @@ bool vlog_get_const(vlog_node_t v, int64_t *value)
          default: return false;
          }
       }
+   case V_USER_FCALL:
+      if (const_eval_ctx != NULL) {
+         mir_unit_t *mu = vlog_lower_thunk(const_eval_ctx->mc,
+                                           const_eval_ctx->parent, v);
+         bool ok = jit_call_thunk2(const_eval_ctx->jit, mu,
+                                   const_eval_ctx->context,
+                                   vlog_eval_const_cb, value) != NULL;
+         mir_unit_free(mu);
+         return ok;
+      }
+      return false;
    default:
-      fatal_at(vlog_loc(v), "expression is not constant");
+      return false;
    }
 }
+
 
 bool vlog_is_const(vlog_node_t v)
 {
@@ -124,6 +158,17 @@ bool vlog_is_const(vlog_node_t v)
       return false;
    case V_BINARY:
       return vlog_is_const(vlog_left(v)) && vlog_is_const(vlog_right(v));
+   case V_USER_FCALL:
+      {
+         if (!vlog_has_ref(v) || vlog_kind(vlog_ref(v)) != V_FUNC_DECL)
+            return false;
+         const int nparams = vlog_params(v);
+         for (int i = 0; i < nparams; i++) {
+            if (!vlog_is_const(vlog_param(v, i)))
+               return false;
+         }
+         return true;
+      }
    default:
       return false;
    }

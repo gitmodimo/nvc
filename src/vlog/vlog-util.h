@@ -27,6 +27,16 @@ bool vlog_is_const(vlog_node_t v);
 bool vlog_is_up(vlog_node_t v);
 bool vlog_bounds(vlog_node_t v, int64_t *left, int64_t *right);
 unsigned vlog_size(vlog_node_t v);
+
+typedef struct {
+   mir_context_t *mc;
+   jit_t         *jit;
+   ident_t        parent;
+   void          *context;
+} vlog_const_eval_ctx_t;
+
+void vlog_push_const_eval_ctx(vlog_const_eval_ctx_t *ctx);
+void vlog_pop_const_eval_ctx(void);
 bool is_top_level(vlog_node_t v);
 bool is_data_type(vlog_node_t v);
 bool is_implicit_data_type(vlog_node_t v);

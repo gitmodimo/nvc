@@ -201,6 +201,7 @@ static const type_info_t *vlog_type_info(vlog_gen_t *g, vlog_node_t v)
    case DT_LOGIC:
    case DT_IMPLICIT:
    case DT_INTEGER:
+   case DT_TIME:
    case DT_EVENT:
       ti->size = vlog_size(v);
       ti->type = mir_vec4_type(g->mu, ti->size, issigned);
@@ -1400,7 +1401,18 @@ static mir_value_t vlog_lower_with_context(vlog_gen_t *g, vlog_node_t v,
          mir_value_t *args LOCAL =
             xmalloc_array(nparams + 1, sizeof(mir_value_t));
 
-         args[0] = mir_build_context_upref(g->mu, 1);  // XXX
+         // Follow vlog_lower_user_tcall's pattern on the new
+         // hier-ref infrastructure: if the call has a resolved
+         // hier-ref prefix, link_package the target's canonical
+         // per-instance alias (resolver-populated).  Otherwise
+         // (local call) fall back to context_upref(1).
+         if (vlog_has_value(v) && vlog_kind(vlog_value(v)) == V_HIER_REF) {
+            vlog_node_t href = vlog_value(v);
+            ident_t unit_name = vlog_hier_unit_alias(g->mu, href);
+            args[0] = mir_build_link_package(g->mu, unit_name);
+         }
+         else
+            args[0] = mir_build_context_upref(g->mu, 1);  // XXX
          for (int i = 0; i < nparams; i++) {
             mir_value_t value = vlog_lower_rvalue(g, vlog_param(v, i));
             vlog_node_t dt = vlog_type(vlog_port(decl, i));

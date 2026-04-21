@@ -1483,9 +1483,19 @@ static void elab_lower(tree_t b, elab_ctx_t *ctx)
    tree_t hier = tree_decl(b, 0);
    assert(tree_kind(hier) == T_HIER);
 
-   if (tree_subkind(hier) == T_VERILOG)
+   if (tree_subkind(hier) == T_VERILOG) {
+      // Push a const-eval context so that vlog_get_const can JIT-evaluate
+      // constant user function calls (e.g. in part-select bounds).
+      // context=NULL is safe: constant functions only reference inlined
+      // localparams and function arguments, never runtime instance data.
+      vlog_const_eval_ctx_t eval_ctx = {
+         ctx->mir, ctx->jit, ctx->cloned ?: ctx->dotted, NULL
+      };
+      vlog_push_const_eval_ctx(&eval_ctx);
       vlog_lower_block(ctx->mir,
                        ctx->parent ? ctx->parent->dotted : NULL, b);
+      vlog_pop_const_eval_ctx();
+   }
    else {
       ctx->lowered = lower_instance(ctx->registry, ctx->parent->lowered,
                                     ctx->cover, ctx->cscope, b);
@@ -2399,7 +2409,15 @@ static void elab_verilog_module(tree_t comp, ident_t label, vlog_node_t mod,
       elab_pre_resolve_hier_params(ei->body, &new_ctx);
 
       vlog_trans(ei->body, ei->block);
-      vlog_lower_instance(ctx->mir, ei->body, NULL, ei->block);
+
+      {
+         vlog_const_eval_ctx_t eval_ctx = {
+            ctx->mir, ctx->jit, vlog_ident(ei->body), NULL
+         };
+         vlog_push_const_eval_ctx(&eval_ctx);
+         vlog_lower_instance(ctx->mir, ei->body, NULL, ei->block);
+         vlog_pop_const_eval_ctx();
+      }
 
       ghash_put(mc->instances, list, ei);
       mc->unique++;
@@ -2553,7 +2571,15 @@ static void elab_verilog_block(vlog_node_t v, const elab_ctx_t *ctx)
    tree_set_ident(block, ndotted);
 
    vlog_trans(body, block);
-   vlog_lower_instance(ctx->mir, body, ctx->cloned, block);
+
+   {
+      vlog_const_eval_ctx_t eval_ctx = {
+         ctx->mir, ctx->jit, ctx->cloned, NULL
+      };
+      vlog_push_const_eval_ctx(&eval_ctx);
+      vlog_lower_instance(ctx->mir, body, ctx->cloned, block);
+      vlog_pop_const_eval_ctx();
+   }
 
    new_ctx.cloned = vlog_ident(body);
    new_ctx.vlog_body = body;
