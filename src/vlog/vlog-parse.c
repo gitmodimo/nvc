@@ -2715,6 +2715,11 @@ static vlog_node_t p_wait_statement(void)
 
    vlog_node_t v = vlog_new(V_WAIT);
 
+   vlog_node_t subr = vlog_symtab_subr(symtab);
+   if (subr != NULL && vlog_kind(subr) == V_FUNC_DECL)
+      parse_error(&state.last_loc, "wait statement is not allowed inside a "
+                  "function");
+
    consume(tLPAREN);
 
    vlog_set_value(v, p_expression());

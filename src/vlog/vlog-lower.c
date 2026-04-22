@@ -2211,6 +2211,54 @@ static void vlog_lower_user_tcall(vlog_gen_t *g, vlog_node_t v)
    mir_build_resume(g->mu, func);
 }
 
+static void vlog_lower_wait(vlog_gen_t *g, vlog_node_t v)
+{
+   // IEEE 1800-2017 §9.4.2: evaluate expression; if it is a non-zero known
+   // value fall through, otherwise suspend until any signal in the support
+   // set changes and re-evaluate.  X/Z resolve as false.
+
+   vlog_node_t expr = vlog_value(v);
+
+   mir_value_t trigger = vlog_lower_trigger(g, expr);
+
+   mir_value_t trigger_var = MIR_NULL_VALUE;
+   if (!mir_is_null(trigger)) {
+      mir_type_t t_trigger = mir_trigger_type(g->mu);
+      trigger_var = mir_add_var(g->mu, t_trigger, MIR_NULL_STAMP,
+                                ident_uniq("wait_trigger"), 0);
+      mir_build_store(g->mu, trigger_var, trigger);
+   }
+
+   mir_block_t test_bb = mir_add_block(g->mu);
+   mir_block_t suspend_bb = mir_add_block(g->mu);
+   mir_block_t resume_bb = mir_add_block(g->mu);
+   mir_block_t body_bb = mir_add_block(g->mu);
+
+   mir_build_jump(g->mu, test_bb);
+
+   mir_set_cursor(g->mu, test_bb, MIR_APPEND);
+   mir_value_t value = vlog_lower_rvalue(g, expr);
+   mir_value_t test = vlog_lower_test(g, value);
+   mir_build_cond(g->mu, test, body_bb, suspend_bb);
+
+   mir_set_cursor(g->mu, suspend_bb, MIR_APPEND);
+   if (!mir_is_null(trigger_var)) {
+      mir_value_t t = mir_build_load(g->mu, trigger_var);
+      mir_build_sched_event(g->mu, t, MIR_NULL_VALUE);
+   }
+   mir_build_wait(g->mu, resume_bb);
+
+   mir_set_cursor(g->mu, resume_bb, MIR_APPEND);
+   if (!mir_is_null(trigger_var)) {
+      mir_value_t t = mir_build_load(g->mu, trigger_var);
+      mir_build_clear_event(g->mu, t, MIR_NULL_VALUE);
+   }
+   mir_build_jump(g->mu, test_bb);
+
+   mir_set_cursor(g->mu, body_bb, MIR_APPEND);
+   vlog_lower_stmts(g, v);
+}
+
 static void vlog_lower_stmts(vlog_gen_t *g, vlog_node_t v)
 {
    const int nstmts = vlog_stmts(v);
@@ -2333,6 +2381,9 @@ static void vlog_lower_stmts(vlog_gen_t *g, vlog_node_t v)
             mir_value_t count = mir_const(g->mu, t_offset, lvalue.size);
             mir_build_release(g->mu, nets, count);
          }
+         break;
+      case V_WAIT:
+         vlog_lower_wait(g, s);
          break;
       default:
          CANNOT_HANDLE(s);

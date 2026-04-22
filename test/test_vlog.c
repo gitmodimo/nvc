@@ -1752,6 +1752,24 @@ START_TEST(test_pp10)
 }
 END_TEST
 
+START_TEST(test_wait1)
+{
+   const error_t expect[] = {
+      {  5, "wait statement is not allowed inside a function" },
+      { -1, NULL }
+   };
+   expect_errors(expect);
+
+   input_from_file(TESTDIR "/vlog/wait1.v");
+
+   do_parse_only(V_MODULE);
+
+   fail_unless(vlog_parse() == NULL);
+
+   check_expected_errors();
+}
+END_TEST
+
 Suite *get_vlog_tests(void)
 {
    Suite *s = suite_create("vlog");
@@ -1820,6 +1838,7 @@ Suite *get_vlog_tests(void)
    tcase_add_test(tc, test_pp9);
    tcase_add_test(tc, test_const2);
    tcase_add_test(tc, test_pp10);
+   tcase_add_test(tc, test_wait1);
    suite_add_tcase(s, tc);
 
    return s;
